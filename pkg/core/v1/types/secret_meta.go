@@ -1,5 +1,6 @@
 package types
 
+// fixed size secret metadata structure
 type SecretMeta struct {
 	ID         [16]byte // 16 bytes, secret ID (UUID)
 	Offset     uint64   // 8 bytes, offset of the secret in the file

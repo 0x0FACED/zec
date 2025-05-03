@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -133,6 +134,50 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	// at the end of writing change flag
 
 	return nil
+}
+
+func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	// get [16]byte id from string id
+	idBytes, err := stringToBytes(id)
+	if err != nil {
+		return SecretData{}, err
+	}
+
+	// search for correct secret meta
+	var meta *SecretMeta
+	for i := range sf.indexTable.Secrets {
+		if sf.indexTable.Secrets[i].ID == idBytes {
+			meta = &sf.indexTable.Secrets[i]
+			break
+		}
+	}
+
+	// not found -> no secret with provided id
+	if meta == nil {
+		return SecretData{}, errors.New("secret not found")
+	}
+
+	// seek file ptr to offset and create buffer for secret
+	buf := make([]byte, meta.Size)
+	_, err = sf.f.Seek(int64(meta.Offset), io.SeekStart)
+	if err != nil {
+		return SecretData{}, err
+	}
+
+	// read secret
+	_, err = io.ReadFull(sf.f, buf)
+	if err != nil {
+		return SecretData{}, err
+	}
+
+	// return secret
+	return SecretData{
+		Meta: *meta,
+		Val:  buf,
+	}, nil
 }
 
 func (sf *SecretFile) Save() error {

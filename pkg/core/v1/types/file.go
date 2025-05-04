@@ -1,6 +1,7 @@
 package types
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -27,21 +28,39 @@ func NewSecretFile(path string, ownerID [16]byte) (*SecretFile, error) {
 		return nil, err
 	}
 
+	var argonSalt [16]byte
+	if _, err := rand.Read(argonSalt[:]); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("failed to generate argon salt: %w", err)
+	}
+
+	var nonce [12]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("failed to generate nonce: %w", err)
+	}
+
+	now := time.Now().Unix()
+
 	sf := &SecretFile{
 		f: f,
 		header: Header{
-			Version:          0x01,         // file version
-			CompleteFlag:     0x00,         // did write complete (default to 0 - not complete)
-			EncryptionAlgo:   AlgoChacha20, // default to chacha20
+			Version:          0x01,         // file format version
+			CompleteFlag:     0x00,         // write not complete
+			EncryptionAlgo:   AlgoChacha20, // default algorithm
+			ArgonMemoryLog2:  18,           // 256 KiB memory
 			SecretCount:      0x00,
-			CreatedAt:        time.Now().Unix(),
-			ModifiedAt:       time.Now().Unix(),
-			DataSize:         0x00, // default to 0
+			CreatedAt:        now,
+			ModifiedAt:       now,
+			DataSize:         0x00,
 			OwnerID:          ownerID,
-			Nonce:            [12]byte{},
+			Nonce:            nonce,
+			ArgonSalt:        argonSalt,
+			ArgonIterations:  3,
+			ArgonParallelism: 1,
 			Checksum:         [32]byte{},
-			IndexTableOffset: 0x00, // default to 0
-			Reserved:         [24]byte{},
+			IndexTableOffset: 0x00,
+			Reserved:         [8]byte{},
 		},
 		indexTable: IndexTable{
 			Secrets: []SecretMeta{},
@@ -301,10 +320,10 @@ func (sf *SecretFile) calculateChecksum() ([32]byte, error) {
 
 func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
 	const (
-		checksumOffset        = 64 // checksum starts from 64 offset
+		checksumOffset        = 80 // checksum starts from 80 offset
 		checksumSize          = 32 // checksum size always is 32 bytes
-		bufSizeBeforeChecksum = 128 - 64
-		bufSizeAfterChecksum  = 128 - (64 + 32)
+		bufSizeBeforeChecksum = 128 - (128 - checksumOffset)
+		bufSizeAfterChecksum  = 128 - (checksumOffset + checksumSize)
 	)
 
 	ret, err := sf.f.Seek(0, io.SeekStart)

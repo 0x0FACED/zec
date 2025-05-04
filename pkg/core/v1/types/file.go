@@ -1,10 +1,14 @@
 package types
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"hash"
 	"io"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -196,19 +200,167 @@ func (sf *SecretFile) Save() error {
 		return err
 	}
 
-	if _, err := sf.f.Seek(0, io.SeekStart); err != nil {
+	ret, err := sf.f.Seek(0, io.SeekStart)
+	if err != nil {
 		return err
 	}
 
+	fmt.Println("ret must be 0, fact:", ret)
+
 	// set up all flags
 	sf.header.CompleteFlag = FlagCompleted | FlagEncrypted | FlagCompressed
+
+	ret, err = sf.f.Seek(0, io.SeekStart)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("ret must be 0, fact:", ret)
 
 	err = sf.writeHeader()
 	if err != nil {
 		return err
 	}
 
+	checksum, err := sf.calculateChecksum()
+	if err != nil {
+		return err
+	}
+
+	sf.header.Checksum = checksum
+
+	_, err = sf.f.Seek(0, io.SeekStart)
+	if err != nil {
+		return err
+	}
+
+	// update header
+	err = sf.writeHeader()
+	if err != nil {
+		return err
+	}
+
+	// close file after writing header
+	return sf.f.Close()
+}
+
+func (sf *SecretFile) ValidateChecksum() error {
+	want := sf.header.Checksum
+
+	fact, err := sf.calculateChecksum()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Want: ", want)
+	fmt.Println("Fact: ", fact)
+
+	if want != fact {
+		return errors.New("checksum is not valid")
+	}
+
 	return nil
+}
+
+func (sf *SecretFile) calculateChecksum() ([32]byte, error) {
+	hasher, err := sf.calculateHeaderChecksum()
+	if err != nil {
+		return [32]byte{}, err
+	}
+
+	const (
+		startPosition = 128
+		blockSize     = 4 * 1024 // 4KB
+	)
+
+	if _, err := sf.f.Seek(startPosition, io.SeekStart); err != nil {
+		return [32]byte{}, err
+	}
+
+	buf := make([]byte, blockSize)
+
+	for {
+		n, err := sf.f.Read(buf)
+		if n > 0 {
+			_, err = hasher.Write(buf)
+		}
+		if err == io.EOF || n == 0 {
+			break
+		}
+
+		if err != nil {
+			return [32]byte{}, err
+		}
+
+	}
+
+	var result [32]byte
+	copy(result[:], hasher.Sum(nil))
+	return result, nil
+}
+
+func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
+	const (
+		checksumOffset        = 64 // checksum starts from 64 offset
+		checksumSize          = 32 // checksum size always is 32 bytes
+		bufSizeBeforeChecksum = 128 - 64
+		bufSizeAfterChecksum  = 128 - (64 + 32)
+	)
+
+	ret, err := sf.f.Seek(0, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	if ret != 0 {
+		return nil, errors.New("start position for hashing header must be 0")
+	}
+
+	hasher := sha256.New()
+
+	bufBeforeChecksum := make([]byte, bufSizeBeforeChecksum)
+
+	n, err := sf.f.Read(bufBeforeChecksum)
+	if err == io.EOF || n == 0 {
+		return nil, errors.New("unexpected EOF")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// write bytes before checksum
+	_, err = hasher.Write(bufBeforeChecksum)
+
+	emptyChecksum := make([]byte, checksumSize)
+
+	// writing arr{0,0,0,...,0} as checksum
+	_, err = hasher.Write(emptyChecksum)
+
+	ret, err = sf.f.Seek(checksumOffset+checksumSize, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	if ret != checksumOffset+checksumSize {
+		return nil, errors.New("start position for hashing header after checksum must be " + strconv.Itoa(checksumOffset+checksumSize))
+	}
+
+	bufAfterChecksum := make([]byte, bufSizeAfterChecksum)
+
+	n, err = sf.f.Read(bufAfterChecksum)
+	if err == io.EOF || n == 0 {
+		return nil, errors.New("unexpected EOF")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// write bytes after checksum
+	_, err = hasher.Write(bufAfterChecksum)
+
+	return hasher, nil
 }
 
 func (sf *SecretFile) writeIndexTable() error {

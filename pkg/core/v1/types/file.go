@@ -259,6 +259,10 @@ func (sf *SecretFile) Save() error {
 		return err
 	}
 
+	if err := sf.f.Sync(); err != nil {
+		return fmt.Errorf("sync failed: %w", err)
+	}
+
 	// close file after writing header
 	return sf.f.Close()
 }

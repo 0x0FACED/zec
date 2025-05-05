@@ -354,7 +354,7 @@ func (sf *SecretFile) calculateChecksum() ([32]byte, error) {
 
 func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
 	const (
-		checksumOffset        = 68 // checksum starts from 80 offset
+		checksumOffset        = 68 // checksum starts from 68 offset
 		checksumSize          = 32 // checksum size always is 32 bytes
 		bufSizeBeforeChecksum = HEADER_SIZE - (HEADER_SIZE - checksumOffset)
 		bufSizeAfterChecksum  = HEADER_SIZE - (checksumOffset + checksumSize)

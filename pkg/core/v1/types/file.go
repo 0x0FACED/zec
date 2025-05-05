@@ -131,7 +131,9 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
-	offset, err := sf.f.Seek(0, io.SeekEnd)
+	payloadEnd := sf.payloadEndOffset()
+
+	offset, err := sf.f.Seek(int64(payloadEnd), io.SeekStart)
 	if err != nil {
 		return err
 	}

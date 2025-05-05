@@ -3,15 +3,17 @@ package types
 import "errors"
 
 // fixed size secret metadata structure
+// 64 bytes
 type SecretMeta struct {
 	ID         [16]byte // 16 bytes, secret ID (name or uuid). if name not provided - use uuid (not good)
 	Offset     uint64   // 8 bytes, offset of the secret in the file
 	Size       uint64   // 8 bytes, size of the secret
 	CreatedAt  uint64   // 8 bytes, time of creation (unix)
 	ModifiedAt uint64   // 8 bytes, time of last modification (unix)
-	Type       uint8    // secret type (0x01 — file, 0x02 — text, 0x03 — binary for example)
-	Flags      uint8    // bit flags (0x01 — encrypted, 0x02 — compressed, 0x04 — deleted for example)
-	Reserved   [14]byte // reserved for future use (22 bytes)
+	Type       uint8    // 1 byte, secret type (0x01 — file, 0x02 — text, 0x03 — binary for example)
+	Flags      uint8    // 1 byte, bit flags (0x01 — encrypted, 0x02 — compressed, 0x04 — deleted for example)
+	Nonce      [12]byte // 12 bytes, iv for encryption (chacha20 or aes-gcm)
+	Reserved   [2]byte  // 2 bytes, reserved for future use (2 bytes)
 }
 
 func NewSecretMeta(id string, size uint64) (SecretMeta, error) {
@@ -28,7 +30,8 @@ func NewSecretMeta(id string, size uint64) (SecretMeta, error) {
 		ModifiedAt: 0,
 		Type:       0x01,
 		Flags:      0x01,
-		Reserved:   [14]byte{},
+		Nonce:      [12]byte{},
+		Reserved:   [2]byte{},
 	}
 
 	return meta, nil

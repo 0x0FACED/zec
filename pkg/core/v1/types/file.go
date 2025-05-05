@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -55,8 +56,10 @@ func NewSecretFile(path string) (*SecretFile, error) {
 			ArgonIterations:  3,
 			ArgonParallelism: 1,
 			Checksum:         [32]byte{},
+			VerificationTag:  [16]byte{},
+			EncryptedFEK:     [60]byte{},
 			IndexTableOffset: 0x00,
-			Reserved:         [20]byte{},
+			Reserved:         [72]byte{},
 		},
 		indexTable: IndexTable{
 			Secrets: []SecretMeta{},
@@ -127,6 +130,18 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
+	// zip + compress
+	// dataBytes := StreamToByte(data)
+
+	// // zip
+	// compressed, err := crypto.Compress(dataBytes)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// // encrypt
+	// encrypted, err := crypto.EncryptChaCha20Poly1305(sf.header.OwnerID[:])
+
 	payloadEnd := sf.payloadEndOffset()
 
 	offset, err := sf.f.Seek(int64(payloadEnd), io.SeekStart)
@@ -134,7 +149,6 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 		return err
 	}
 
-	fmt.Println("Offset before write new secret:", offset)
 	meta.Offset = uint64(offset)
 	meta.CreatedAt = uint64(time.Now().Unix())
 	meta.ModifiedAt = meta.CreatedAt
@@ -156,6 +170,13 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	// at the end of writing change flag
 
 	return nil
+}
+
+// move
+func StreamToByte(stream io.Reader) []byte {
+	buf := new(bytes.Buffer)
+	_, _ = buf.ReadFrom(stream)
+	return buf.Bytes()
 }
 
 func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
@@ -265,7 +286,7 @@ func (sf *SecretFile) Save() error {
 }
 
 func (sf *SecretFile) payloadEndOffset() uint64 {
-	var max uint64 = 128
+	var max uint64 = HEADER_SIZE
 
 	for _, s := range sf.indexTable.Secrets {
 		if end := s.Offset + s.Size; end > max {
@@ -301,7 +322,7 @@ func (sf *SecretFile) calculateChecksum() ([32]byte, error) {
 	}
 
 	const (
-		startPosition = 128
+		startPosition = HEADER_SIZE
 		blockSize     = 4 * 1024 // 4KB
 	)
 
@@ -335,8 +356,8 @@ func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
 	const (
 		checksumOffset        = 68 // checksum starts from 80 offset
 		checksumSize          = 32 // checksum size always is 32 bytes
-		bufSizeBeforeChecksum = 128 - (128 - checksumOffset)
-		bufSizeAfterChecksum  = 128 - (checksumOffset + checksumSize)
+		bufSizeBeforeChecksum = HEADER_SIZE - (HEADER_SIZE - checksumOffset)
+		bufSizeAfterChecksum  = HEADER_SIZE - (checksumOffset + checksumSize)
 	)
 
 	ret, err := sf.f.Seek(0, io.SeekStart)

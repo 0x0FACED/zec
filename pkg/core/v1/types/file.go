@@ -207,34 +207,32 @@ func (sf *SecretFile) Save() error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
+	payloadEnd := sf.payloadEndOffset()
+
 	// write index table
-	indexTableOffset, err := sf.f.Seek(0, io.SeekEnd)
+	if _, err := sf.f.Seek(int64(payloadEnd), io.SeekStart); err != nil {
+		return fmt.Errorf("seek for index table failed: %w", err)
+	}
+
+	sf.header.IndexTableOffset = payloadEnd
+
+	err := sf.writeIndexTable()
 	if err != nil {
 		return err
 	}
 
-	sf.header.IndexTableOffset = uint64(indexTableOffset)
-	err = sf.writeIndexTable()
+	_, err = sf.f.Seek(0, io.SeekStart)
 	if err != nil {
 		return err
 	}
-
-	ret, err := sf.f.Seek(0, io.SeekStart)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("ret must be 0, fact:", ret)
 
 	// set up all flags
 	sf.header.CompleteFlag = FlagCompleted | FlagEncrypted | FlagCompressed
 
-	ret, err = sf.f.Seek(0, io.SeekStart)
+	_, err = sf.f.Seek(0, io.SeekStart)
 	if err != nil {
 		return err
 	}
-
-	fmt.Println("ret must be 0, fact:", ret)
 
 	err = sf.writeHeader()
 	if err != nil {

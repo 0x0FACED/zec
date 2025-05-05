@@ -1,7 +1,6 @@
 package types
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -12,6 +11,9 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
+	"github.com/google/uuid"
 )
 
 type SecretFile struct {
@@ -22,23 +24,18 @@ type SecretFile struct {
 	mu sync.Mutex
 }
 
-func NewSecretFile(path string, ownerID [16]byte) (*SecretFile, error) {
+func NewSecretFile(path string) (*SecretFile, error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var argonSalt [16]byte
-	if _, err := rand.Read(argonSalt[:]); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("failed to generate argon salt: %w", err)
+	salt, err := crypto.Salt16()
+	if err != nil {
+		return nil, err
 	}
 
-	var nonce [12]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("failed to generate nonce: %w", err)
-	}
+	ownerID := uuid.New()
 
 	now := time.Now().Unix()
 
@@ -48,19 +45,18 @@ func NewSecretFile(path string, ownerID [16]byte) (*SecretFile, error) {
 			Version:          0x01,         // file format version
 			CompleteFlag:     0x00,         // write not complete
 			EncryptionAlgo:   AlgoChacha20, // default algorithm
-			ArgonMemoryLog2:  18,           // 256 KiB memory
+			ArgonMemoryLog2:  18,           // 256 KiB memory, 1<<ArgonMemoryLog2
 			SecretCount:      0x00,
 			CreatedAt:        now,
 			ModifiedAt:       now,
 			DataSize:         0x00,
 			OwnerID:          ownerID,
-			Nonce:            nonce,
-			ArgonSalt:        argonSalt,
+			ArgonSalt:        salt,
 			ArgonIterations:  3,
 			ArgonParallelism: 1,
 			Checksum:         [32]byte{},
 			IndexTableOffset: 0x00,
-			Reserved:         [8]byte{},
+			Reserved:         [20]byte{},
 		},
 		indexTable: IndexTable{
 			Secrets: []SecretMeta{},
@@ -138,6 +134,7 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 		return err
 	}
 
+	fmt.Println("Offset before write new secret:", offset)
 	meta.Offset = uint64(offset)
 	meta.CreatedAt = uint64(time.Now().Unix())
 	meta.ModifiedAt = meta.CreatedAt

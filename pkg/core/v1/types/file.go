@@ -263,6 +263,18 @@ func (sf *SecretFile) Save() error {
 	return sf.f.Close()
 }
 
+func (sf *SecretFile) payloadEndOffset() uint64 {
+	var max uint64 = 128
+
+	for _, s := range sf.indexTable.Secrets {
+		if end := s.Offset + s.Size; end > max {
+			max = end
+		}
+	}
+
+	return max
+}
+
 func (sf *SecretFile) ValidateChecksum() error {
 	want := sf.header.Checksum
 

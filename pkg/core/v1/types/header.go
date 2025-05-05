@@ -1,6 +1,11 @@
 package types
 
-// 128 bytes
+const (
+	// bytes
+	HEADER_SIZE = 256
+)
+
+// 256 bytes
 type Header struct {
 	Version          uint8    // 1 byte — file version (0x01)
 	CompleteFlag     uint8    // 1 byte — did write complete
@@ -16,6 +21,8 @@ type Header struct {
 	ArgonParallelism uint8    // 1 byte — Argon2 parallelism
 	_                uint8    // 1 byte — padding between nonce and checksum
 	Checksum         [32]byte // 32 bytes — checksum of the file (sha256)
+	VerificationTag  [16]byte // 16 bytes — HMAC(master_key, "zec-verification")[:16]
+	EncryptedFEK     [60]byte // 60 bytes — nonce (12) + ciphertext (32) + tag (16)
 	IndexTableOffset uint64   // 8 bytes — offset of the index table
-	Reserved         [20]byte // 20 bytes — for future use
+	Reserved         [72]byte // 72 bytes — for future use
 }

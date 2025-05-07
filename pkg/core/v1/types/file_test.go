@@ -10,6 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	testPassword = "test-password"
+)
+
 // helper func that deletes created file
 func removeFile(t *testing.T, filename string) {
 	t.Helper()
@@ -22,7 +26,7 @@ func removeFile(t *testing.T, filename string) {
 func createFile(t *testing.T, filename string) (*types.SecretFile, error) {
 	t.Helper()
 
-	sf, err := types.NewSecretFile(filename)
+	sf, err := types.NewSecretFile(filename, []byte(testPassword))
 	assert.NoError(t, err)
 
 	assert.NotNil(t, sf)
@@ -87,6 +91,7 @@ func TestFile_WriteSecret(t *testing.T) {
 // 	assert.Equal(t, len(payloads), len(sf.IndexTable().Secrets))
 // }
 
+// fails
 func TestFile_ReopenAndReadSecrets(t *testing.T) {
 	filename := "read-after-reopen.zec"
 	sf, _ := createFile(t, filename)
@@ -102,7 +107,8 @@ func TestFile_ReopenAndReadSecrets(t *testing.T) {
 	err = sf.Save()
 	assert.NoError(t, err)
 
-	sf2, err := file.Open(filename)
+	// change master key
+	sf2, err := file.Open(filename, []byte{})
 	assert.NoError(t, err)
 	assert.NotNil(t, sf2)
 
@@ -113,6 +119,7 @@ func TestFile_ReopenAndReadSecrets(t *testing.T) {
 	assert.Equal(t, data, string(readData.Val))
 }
 
+// fails
 func TestFile_AppendToExistingFile(t *testing.T) {
 	filename := "append.zec"
 	sf, _ := createFile(t, filename)
@@ -123,14 +130,16 @@ func TestFile_AppendToExistingFile(t *testing.T) {
 	_ = sf.Save()
 
 	// reopen
-	sf2, err := file.Open(filename)
+	// change master key
+	sf2, err := file.Open(filename, []byte{})
 	assert.NoError(t, err)
 
 	meta2, _ := types.NewSecretMeta("beta", 3)
 	_ = sf2.WriteSecret(meta2, bytes.NewBuffer([]byte("abc")))
 	_ = sf2.Save()
 
-	sf3, err := file.Open(filename)
+	// change master key
+	sf3, err := file.Open(filename, []byte{})
 	assert.NoError(t, err)
 
 	assert.Equal(t, 2, len(sf3.IndexTable().Secrets))
@@ -144,6 +153,7 @@ func TestFile_AppendToExistingFile(t *testing.T) {
 	assert.Equal(t, "abc", string(readData2.Val))
 }
 
+// fails
 func TestFile_EmptyFileHandling(t *testing.T) {
 	filename := "empty.zec"
 	sf, _ := createFile(t, filename)
@@ -155,7 +165,7 @@ func TestFile_EmptyFileHandling(t *testing.T) {
 	err := sf.Save()
 	assert.NoError(t, err)
 
-	sf2, err := file.Open(filename)
+	sf2, err := file.Open(filename, []byte{})
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(sf2.IndexTable().Secrets))
 }

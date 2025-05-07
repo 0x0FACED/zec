@@ -13,19 +13,27 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0x0FACED/uuid"
 	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
-	"github.com/google/uuid"
+)
+
+// default params for argon
+const (
+	ArgonMemoryLog2  = 18
+	ArgonIterations  = 5
+	ArgonParallelism = 1
 )
 
 type SecretFile struct {
 	f          *os.File
 	header     Header     // file header
 	indexTable IndexTable // index table
+	masterKey  [32]byte
 
 	mu sync.Mutex
 }
 
-func NewSecretFile(path string) (*SecretFile, error) {
+func NewSecretFile(path string, password []byte) (*SecretFile, error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return nil, err
@@ -36,28 +44,38 @@ func NewSecretFile(path string) (*SecretFile, error) {
 		return nil, err
 	}
 
-	ownerID := uuid.New()
+	masterKey := crypto.Argon2idMasterKey32(password, salt, ArgonMemoryLog2, ArgonIterations, ArgonParallelism)
+
+	encryptedFEK, err := crypto.EncryptFEK(masterKey)
+	if err != nil {
+		return nil, err
+	}
+
+	verificationTag := crypto.HMAC([32]byte(masterKey))
+
+	ownerID := uuid.NewV4()
 
 	now := time.Now().Unix()
 
 	sf := &SecretFile{
-		f: f,
+		f:         f,
+		masterKey: [32]byte(masterKey),
 		header: Header{
-			Version:          0x01,         // file format version
-			CompleteFlag:     0x00,         // write not complete
-			EncryptionAlgo:   AlgoChacha20, // default algorithm
-			ArgonMemoryLog2:  18,           // 256 KiB memory, 1<<ArgonMemoryLog2
+			Version:          0x01,            // file format version
+			CompleteFlag:     0x00,            // write not complete
+			EncryptionAlgo:   AlgoChacha20,    // default algorithm
+			ArgonMemoryLog2:  ArgonMemoryLog2, // 256 KiB memory, 1<<ArgonMemoryLog2
 			SecretCount:      0x00,
 			CreatedAt:        now,
 			ModifiedAt:       now,
 			DataSize:         0x00,
 			OwnerID:          ownerID,
 			ArgonSalt:        salt,
-			ArgonIterations:  3,
-			ArgonParallelism: 1,
+			ArgonIterations:  ArgonIterations,
+			ArgonParallelism: ArgonParallelism,
 			Checksum:         [32]byte{},
-			VerificationTag:  [16]byte{},
-			EncryptedFEK:     [60]byte{},
+			VerificationTag:  verificationTag,
+			EncryptedFEK:     encryptedFEK,
 			IndexTableOffset: 0x00,
 			Reserved:         [72]byte{},
 		},
@@ -108,6 +126,13 @@ func (sf *SecretFile) SetFile(f *os.File) {
 	sf.f = f
 }
 
+func (sf *SecretFile) SetMasterKey(masterKey []byte) {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	sf.masterKey = [32]byte(masterKey)
+}
+
 func (sf *SecretFile) File() *os.File {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
@@ -131,16 +156,25 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	defer sf.mu.Unlock()
 
 	// zip + compress
-	// dataBytes := StreamToByte(data)
+	dataBytes := StreamToByte(data)
 
-	// // zip
-	// compressed, err := crypto.Compress(dataBytes)
-	// if err != nil {
-	// 	return err
-	// }
+	// zip
+	/*compressed, err := crypto.Compress(dataBytes)
+	if err != nil {
+		return err
+	}*/
 
-	// // encrypt
-	// encrypted, err := crypto.EncryptChaCha20Poly1305(sf.header.OwnerID[:])
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	if err != nil {
+		return err
+	}
+
+	nonce, err := crypto.Nonce12()
+	if err != nil {
+		return err
+	}
+	// encrypt
+	encrypted, err := crypto.EncryptChaCha20Poly1305(fek[:], nonce[:], dataBytes)
 
 	payloadEnd := sf.payloadEndOffset()
 
@@ -152,11 +186,13 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	meta.Offset = uint64(offset)
 	meta.CreatedAt = uint64(time.Now().Unix())
 	meta.ModifiedAt = meta.CreatedAt
+	meta.Nonce = nonce
 
 	// change
 	meta.Flags = FlagUndefined
 
-	n, err := io.Copy(sf.f, data)
+	buf := bytes.NewBuffer(encrypted)
+	n, err := io.Copy(sf.f, buf)
 	if err != nil {
 		return err
 	}
@@ -189,6 +225,11 @@ func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 		return SecretData{}, err
 	}
 
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	if err != nil {
+		return SecretData{}, err
+	}
+
 	// search for correct secret meta
 	var meta *SecretMeta
 	for i := range sf.indexTable.Secrets {
@@ -204,14 +245,19 @@ func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 	}
 
 	// seek file ptr to offset and create buffer for secret
-	buf := make([]byte, meta.Size)
+	encryptedBuf := make([]byte, meta.Size)
 	_, err = sf.f.Seek(int64(meta.Offset), io.SeekStart)
 	if err != nil {
 		return SecretData{}, err
 	}
 
 	// read secret
-	_, err = io.ReadFull(sf.f, buf)
+	_, err = io.ReadFull(sf.f, encryptedBuf)
+	if err != nil {
+		return SecretData{}, err
+	}
+
+	secretData, err := crypto.DecryptChaCha20Poly1305(fek[:], meta.Nonce[:], encryptedBuf)
 	if err != nil {
 		return SecretData{}, err
 	}
@@ -219,7 +265,7 @@ func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 	// return secret
 	return SecretData{
 		Meta: *meta,
-		Val:  buf,
+		Val:  secretData,
 	}, nil
 }
 

@@ -57,6 +57,11 @@ func NewSecretFile(path string, password []byte) (*SecretFile, error) {
 
 	now := time.Now().Unix()
 
+	indexTableNonce, err := crypto.Nonce12()
+	if err != nil {
+		return nil, err
+	}
+
 	sf := &SecretFile{
 		f:         f,
 		masterKey: [32]byte(masterKey),
@@ -77,7 +82,8 @@ func NewSecretFile(path string, password []byte) (*SecretFile, error) {
 			VerificationTag:  verificationTag,
 			EncryptedFEK:     encryptedFEK,
 			IndexTableOffset: 0x00,
-			Reserved:         [72]byte{},
+			IndexTableNonce:  indexTableNonce,
+			Reserved:         [60]byte{},
 		},
 		indexTable: IndexTable{
 			Secrets: []SecretMeta{},
@@ -463,11 +469,20 @@ func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
 }
 
 func (sf *SecretFile) writeIndexTable() error {
-	for _, meta := range sf.indexTable.Secrets {
-		if err := binary.Write(sf.f, binary.LittleEndian, meta); err != nil {
-			return err
-		}
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	if err != nil {
+		return err
 	}
+
+	ciphertext, err := sf.indexTable.Encrypt(fek[:], sf.header.IndexTableNonce[:])
+	if err != nil {
+		return err
+	}
+
+	if _, err := sf.f.Write(ciphertext); err != nil {
+		return err
+	}
+
 	return nil
 }
 

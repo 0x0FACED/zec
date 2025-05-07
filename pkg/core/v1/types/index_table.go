@@ -1,41 +1,62 @@
 package types
 
 import (
-	"encoding/binary"
-	"io"
+	"bytes"
+	"encoding/gob"
+	"fmt"
+
+	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
 )
 
 type IndexTable struct {
 	Secrets []SecretMeta // slice of secrets metadata
 }
 
-// TEST METHOD
-func (t *IndexTable) Encode(w io.Writer) error {
-	count := uint32(len(t.Secrets))
-	if err := binary.Write(w, binary.LittleEndian, count); err != nil {
+func (it *IndexTable) Encrypt(fek []byte, nonce []byte) ([]byte, error) {
+	// serialize secrets meta to bytes
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(it.Secrets); err != nil {
+		return nil, err
+	}
+
+	ciphertext, err := crypto.EncryptChaCha20Poly1305(fek, nonce, buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	return ciphertext, nil
+}
+
+func (it *IndexTable) Decrypt(fek []byte, nonce []byte, ciphertext []byte) error {
+	plaintext, err := crypto.DecryptChaCha20Poly1305(fek, nonce, ciphertext)
+	if err != nil {
 		return err
 	}
 
-	for _, secret := range t.Secrets {
-		if err := binary.Write(w, binary.LittleEndian, secret); err != nil {
-			return err
-		}
+	// deserialize bytes to secrets meta
+	var secrets []SecretMeta
+	if err := gob.NewDecoder(bytes.NewReader(plaintext)).Decode(&secrets); err != nil {
+		return err
 	}
+
+	it.Secrets = secrets
+
 	return nil
 }
 
-// TEST METHOD
-func (t *IndexTable) Decode(r io.Reader) error {
-	var count uint32
-	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
-		return err
+func DecryptIndexTableFromCipher(fek []byte, nonce []byte, ciphertext []byte) (*IndexTable, error) {
+	plaintext, err := crypto.DecryptChaCha20Poly1305(fek, nonce, ciphertext)
+	if err != nil {
+		return nil, err
 	}
 
-	t.Secrets = make([]SecretMeta, count)
-	for i := uint32(0); i < count; i++ {
-		if err := binary.Read(r, binary.LittleEndian, &t.Secrets[i]); err != nil {
-			return err
-		}
+	var table IndexTable
+	var secrets []SecretMeta
+	if err := gob.NewDecoder(bytes.NewReader(plaintext)).Decode(&secrets); err != nil {
+		return nil, fmt.Errorf("failed to decode index table: %w", err)
 	}
-	return nil
+
+	table.Secrets = secrets
+
+	return &table, nil
 }

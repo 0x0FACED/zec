@@ -24,5 +24,6 @@ type Header struct {
 	VerificationTag  [16]byte // 16 bytes — HMAC(master_key, "zec-verification")[:16]
 	EncryptedFEK     [60]byte // 60 bytes — nonce (12) + ciphertext (32) + tag (16)
 	IndexTableOffset uint64   // 8 bytes — offset of the index table
-	Reserved         [72]byte // 72 bytes — for future use
+	IndexTableNonce  [12]byte // 12 bytes — nonce for enc index table
+	Reserved         [60]byte // 60 bytes — for future use
 }

@@ -1,9 +1,7 @@
 package file
 
 import (
-	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,10 +22,10 @@ func Open(path string, password []byte) (*types.SecretFile, error) {
 		return nil, err
 	}
 
-	// verify pass
-
 	masterKey := crypto.Argon2idMasterKey32(password, header.ArgonSalt, header.ArgonMemoryLog2, header.ArgonIterations, header.ArgonParallelism)
-	_, err = crypto.DecryptFEK(masterKey, header.EncryptedFEK, header.VerificationTag)
+
+	// verify pass
+	fek, err := crypto.DecryptFEK(masterKey, header.EncryptedFEK, header.VerificationTag)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +45,7 @@ func Open(path string, password []byte) (*types.SecretFile, error) {
 	fmt.Println("indexTableOffset", indexTableOffset)
 
 	// Read the index table
-	indexTable, err := ReadIndexTable(f, &header)
+	indexTable, err := ReadIndexTable(fek, f, &header)
 	if err != nil {
 		return nil, err
 	}
@@ -65,54 +63,23 @@ func Open(path string, password []byte) (*types.SecretFile, error) {
 	return secretFile, nil
 }
 
-func ReadIndexTable(f *os.File, header *types.Header) (*types.IndexTable, error) {
+func ReadIndexTable(fek [32]byte, f *os.File, header *types.Header) (*types.IndexTable, error) {
 	// set read to IndexTableOffset
 	_, err := f.Seek(int64(header.IndexTableOffset), io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
 
-	// get size of every meta block (size-fixed)
-	metaSize := binary.Size(types.SecretMeta{})
-	if metaSize <= 0 {
-		return nil, errors.New("invalid SecretMeta size")
-	}
-
-	// count full size of index table
-	totalSize := int(header.SecretCount) * metaSize
-	// make buf for index table
-	buf := make([]byte, totalSize)
-
-	// read full index table
-	_, err = io.ReadFull(f, buf)
+	// encrypted index table bytes
+	ciphertext, err := io.ReadAll(f)
 	if err != nil {
 		return nil, err
 	}
 
-	// make slice of secrets metadata of header.SecretCount size
-	metas := make([]types.SecretMeta, header.SecretCount)
-	var i uint32
-	// iterate over all secrets
-	for i = 0; i < header.SecretCount; i++ {
-		// every itaration - read new block from buf
-		offset := i * uint32(metaSize)
-		metaBuf := buf[offset : offset+uint32(metaSize)]
-
-		// read block from metaBuf and write fo metas[i]
-		err := binary.Read(
-			bytes.NewReader(metaBuf),
-			binary.LittleEndian,
-			&metas[i],
-		)
-		if err != nil {
-			return nil, err
-		}
+	indexTable, err := types.DecryptIndexTableFromCipher(fek[:], header.IndexTableNonce[:], ciphertext)
+	if err != nil {
+		return nil, err
 	}
 
-	// create index table from metas slice
-	indexTable := types.IndexTable{
-		Secrets: metas,
-	}
-
-	return &indexTable, nil
+	return indexTable, nil
 }

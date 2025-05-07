@@ -8,10 +8,11 @@ import (
 	"io"
 	"os"
 
+	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
 	"github.com/0x0FACED/zec/pkg/core/v1/types"
 )
 
-func Open(path string) (*types.SecretFile, error) {
+func Open(path string, password []byte) (*types.SecretFile, error) {
 	f, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
 		return nil, err
@@ -20,6 +21,14 @@ func Open(path string) (*types.SecretFile, error) {
 	// Read the header
 	header := types.Header{}
 	if err := binary.Read(f, binary.LittleEndian, &header); err != nil {
+		return nil, err
+	}
+
+	// verify pass
+
+	masterKey := crypto.Argon2idMasterKey32(password, header.ArgonSalt, header.ArgonMemoryLog2, header.ArgonIterations, header.ArgonParallelism)
+	_, err = crypto.DecryptFEK(masterKey, header.EncryptedFEK, header.VerificationTag)
+	if err != nil {
 		return nil, err
 	}
 
@@ -49,6 +58,7 @@ func Open(path string) (*types.SecretFile, error) {
 	secretFile := &types.SecretFile{}
 
 	secretFile.SetFile(f)
+	secretFile.SetMasterKey(masterKey)
 	secretFile.SetHeader(header)
 	secretFile.SetIndexTable(*indexTable)
 

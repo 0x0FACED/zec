@@ -15,6 +15,8 @@ import (
 
 	"github.com/0x0FACED/uuid"
 	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
+	"github.com/schollz/progressbar/v3"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // default params for argon
@@ -197,8 +199,8 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	// change
 	meta.Flags = FlagUndefined
 
-	buf := bytes.NewBuffer(encrypted)
-	n, err := io.Copy(sf.f, buf)
+	bar := progressbar.DefaultBytes(int64(len(encrypted)), "writing encrypted data")
+	n, err := io.Copy(io.MultiWriter(sf.f, bar), bytes.NewReader(encrypted))
 	if err != nil {
 		return err
 	}
@@ -208,8 +210,84 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	sf.header.SecretCount++
 	sf.header.ModifiedAt = time.Now().Unix()
 	sf.header.DataSize += uint64(n)
-
 	// at the end of writing change flag
+	meta.Flags = FlagCompleted
+
+	return nil
+}
+
+// WriteSecretFromReader used for writing files (works incorrectly)
+func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	if err != nil {
+		return err
+	}
+
+	nonce, err := crypto.Nonce12()
+	if err != nil {
+		return err
+	}
+	meta.Nonce = nonce
+
+	offset, err := sf.f.Seek(int64(sf.payloadEndOffset()), io.SeekStart)
+	if err != nil {
+		return err
+	}
+	meta.Offset = uint64(offset)
+
+	aead, err := chacha20poly1305.New(fek[:])
+	if err != nil {
+		return err
+	}
+
+	pr, pw := io.Pipe()
+
+	total := 0
+	go func() {
+		defer pw.Close()
+
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			if n > 0 {
+				block := buf[:n]
+				enc := aead.Seal(nil, nonce[:], block, nil)
+				if _, err := pw.Write(enc); err != nil {
+					return
+				}
+				total += len(enc)
+			}
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				pw.CloseWithError(err)
+				return
+			}
+		}
+	}()
+
+	nWritten, err := io.Copy(sf.f, pr)
+	if err != nil {
+		return err
+	}
+	meta.Size = uint64(nWritten)
+
+	fmt.Println("Written: ", nWritten)
+	fmt.Println("Encrypted: ", total)
+
+	now := uint64(time.Now().Unix())
+	meta.CreatedAt = now
+	meta.ModifiedAt = now
+	meta.Flags = FlagCompleted
+
+	sf.indexTable.Secrets = append(sf.indexTable.Secrets, meta)
+	sf.header.SecretCount++
+	sf.header.ModifiedAt = int64(now)
+	sf.header.DataSize += meta.Size
 
 	return nil
 }
@@ -273,6 +351,56 @@ func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 		Meta: *meta,
 		Val:  secretData,
 	}, nil
+}
+
+func (sf *SecretFile) ReadSecretToWriter(id string, w io.Writer) error {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	idBytes, err := stringToBytes(id)
+	if err != nil {
+		return err
+	}
+
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	if err != nil {
+		return err
+	}
+
+	var meta *SecretMeta
+	for i := range sf.indexTable.Secrets {
+		if sf.indexTable.Secrets[i].ID == idBytes {
+			meta = &sf.indexTable.Secrets[i]
+			break
+		}
+	}
+	if meta == nil {
+		return errors.New("secret not found")
+	}
+
+	_, err = sf.f.Seek(int64(meta.Offset), io.SeekStart)
+	if err != nil {
+		return err
+	}
+
+	bar := progressbar.DefaultBytes(int64(meta.Size), "reading encrypted secret")
+
+	encryptedBuf := make([]byte, meta.Size)
+	reader := io.TeeReader(io.LimitReader(sf.f, int64(meta.Size)), bar)
+
+	_, err = io.ReadFull(reader, encryptedBuf)
+	if err != nil {
+		return err
+	}
+
+	plaintext, err := crypto.DecryptChaCha20Poly1305(fek[:], meta.Nonce[:], encryptedBuf)
+	if err != nil {
+		return err
+	}
+
+	bar2 := progressbar.DefaultBytes(int64(len(plaintext)), "writing plaintext")
+	_, err = io.Copy(io.MultiWriter(w, bar2), bytes.NewReader(plaintext))
+	return err
 }
 
 func (sf *SecretFile) Save() error {
@@ -357,8 +485,8 @@ func (sf *SecretFile) ValidateChecksum() error {
 		return err
 	}
 
-	fmt.Println("Want: ", want)
-	fmt.Println("Fact: ", fact)
+	// fmt.Println("Want: ", want)
+	// fmt.Println("Fact: ", fact)
 
 	if want != fact {
 		return errors.New("checksum is not valid")

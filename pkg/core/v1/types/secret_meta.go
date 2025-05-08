@@ -2,6 +2,11 @@ package types
 
 import "errors"
 
+const (
+	PlainText = 0x01
+	File      = 0x02
+)
+
 // fixed size secret metadata structure
 // 64 bytes
 type SecretMeta struct {
@@ -16,6 +21,7 @@ type SecretMeta struct {
 	Reserved   [2]byte  // 2 bytes, reserved for future use (2 bytes)
 }
 
+// NewSecretMeta used for plain text
 func NewSecretMeta(id string, size uint64) (SecretMeta, error) {
 	idBytes, err := stringToBytes(id)
 	if err != nil {
@@ -29,6 +35,28 @@ func NewSecretMeta(id string, size uint64) (SecretMeta, error) {
 		CreatedAt:  0,
 		ModifiedAt: 0,
 		Type:       0x01,
+		Flags:      0x01,
+		Nonce:      [12]byte{},
+		Reserved:   [2]byte{},
+	}
+
+	return meta, nil
+}
+
+// NewSecretMetaWithType used for files
+func NewSecretMetaWithType(id string, size uint64, _type uint8) (SecretMeta, error) {
+	idBytes, err := stringToBytes(id)
+	if err != nil {
+		return SecretMeta{}, err
+	}
+
+	meta := SecretMeta{
+		ID:         idBytes,
+		Offset:     0,
+		Size:       size,
+		CreatedAt:  0,
+		ModifiedAt: 0,
+		Type:       _type,
 		Flags:      0x01,
 		Nonce:      [12]byte{},
 		Reserved:   [2]byte{},

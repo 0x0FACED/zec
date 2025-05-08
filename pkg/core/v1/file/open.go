@@ -2,7 +2,6 @@ package file
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 
@@ -34,15 +33,10 @@ func Open(path string, password []byte) (*types.SecretFile, error) {
 	indexTableOffset := header.IndexTableOffset
 
 	// set seek to the index table offset
-	ret, err := f.Seek(int64(indexTableOffset), io.SeekStart)
+	_, err = f.Seek(int64(indexTableOffset), io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
-
-	// ret must be equal to indexTableOffset
-	// TODO: remove
-	fmt.Println("ret", ret)
-	fmt.Println("indexTableOffset", indexTableOffset)
 
 	// Read the index table
 	indexTable, err := ReadIndexTable(fek, f, &header)

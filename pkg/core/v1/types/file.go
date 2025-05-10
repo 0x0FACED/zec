@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/0x0FACED/uuid"
+	"github.com/0x0FACED/zec/pkg/core/progress"
 	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
-	"github.com/schollz/progressbar/v3"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
@@ -199,7 +199,7 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	// change
 	meta.Flags = FlagUndefined
 
-	bar := progressbar.DefaultBytes(int64(len(encrypted)), "writing encrypted data")
+	bar := progress.NewPrettyProgressBar("writing encrypted data", int64(len(encrypted)))
 	n, err := io.Copy(io.MultiWriter(sf.f, bar), bytes.NewReader(encrypted))
 	if err != nil {
 		return err
@@ -383,8 +383,7 @@ func (sf *SecretFile) ReadSecretToWriter(id string, w io.Writer) error {
 		return err
 	}
 
-	bar := progressbar.DefaultBytes(int64(meta.Size), "reading encrypted secret")
-
+	bar := progress.NewPrettyProgressBar("reading encrypted secret", int64(meta.Size))
 	encryptedBuf := make([]byte, meta.Size)
 	reader := io.TeeReader(io.LimitReader(sf.f, int64(meta.Size)), bar)
 
@@ -398,7 +397,7 @@ func (sf *SecretFile) ReadSecretToWriter(id string, w io.Writer) error {
 		return err
 	}
 
-	bar2 := progressbar.DefaultBytes(int64(len(plaintext)), "writing plaintext")
+	bar2 := progress.NewPrettyProgressBar("writing plaintext", int64(len(plaintext)))
 	_, err = io.Copy(io.MultiWriter(w, bar2), bytes.NewReader(plaintext))
 	return err
 }

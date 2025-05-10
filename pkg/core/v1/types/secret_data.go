@@ -7,7 +7,7 @@ import (
 
 type SecretData struct {
 	Meta SecretMeta // not written as secret
-	Val  []byte     // secret data (must be excrypted + zipped, but not now)
+	Val  []byte     // secret data (must be excrypted + zipped, but encrypted only for now)
 }
 
 func (sd *SecretData) WriteToFile(path string) error {

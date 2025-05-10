@@ -24,7 +24,7 @@ func Open(path string, password []byte) (*types.SecretFile, error) {
 	masterKey := crypto.Argon2idMasterKey32(password, header.ArgonSalt, header.ArgonMemoryLog2, header.ArgonIterations, header.ArgonParallelism)
 
 	// verify pass
-	fek, err := crypto.DecryptFEK(masterKey, header.EncryptedFEK, header.VerificationTag)
+	fek, err := crypto.DecryptFEK(masterKey, header.EncryptedFEK, header.VerificationTag, header.AuthenticatedBytes())
 	if err != nil {
 		return nil, err
 	}

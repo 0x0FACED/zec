@@ -1,5 +1,10 @@
 package types
 
+import (
+	"bytes"
+	"encoding/binary"
+)
+
 const (
 	// bytes
 	HEADER_SIZE = 256
@@ -26,4 +31,29 @@ type Header struct {
 	IndexTableOffset uint64   // 8 bytes — offset of the index table
 	IndexTableNonce  [12]byte // 12 bytes — nonce for enc index table
 	Reserved         [60]byte // 60 bytes — for future use
+}
+
+// AuthenticatedBytes serialize struct Header to byte arr.
+// Checksum, Complete Flag NOT included.
+func (h *Header) AuthenticatedBytes() []byte {
+	buf := bytes.NewBuffer(nil)
+
+	buf.WriteByte(h.Version)
+	buf.WriteByte(h.EncryptionAlgo)
+	buf.WriteByte(h.ArgonMemoryLog2)
+	binary.Write(buf, binary.LittleEndian, h.SecretCount)
+	binary.Write(buf, binary.LittleEndian, h.CreatedAt)
+	binary.Write(buf, binary.LittleEndian, h.ModifiedAt)
+	binary.Write(buf, binary.LittleEndian, h.DataSize)
+	buf.Write(h.OwnerID[:])   // 16 bytes
+	buf.Write(h.ArgonSalt[:]) // 16 bytes
+	binary.Write(buf, binary.LittleEndian, h.ArgonIterations)
+	buf.WriteByte(h.ArgonParallelism)
+	buf.WriteByte(1)             // Padding byte
+	buf.Write(h.EncryptedFEK[:]) // 60 bytes
+	binary.Write(buf, binary.LittleEndian, h.IndexTableOffset)
+	buf.Write(h.IndexTableNonce[:]) // 12 bytes
+	buf.Write(h.Reserved[:])        // 60 bytes
+
+	return buf.Bytes()
 }

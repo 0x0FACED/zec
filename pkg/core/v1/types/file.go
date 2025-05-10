@@ -53,10 +53,7 @@ func NewSecretFile(path string, password []byte) (*SecretFile, error) {
 		return nil, err
 	}
 
-	verificationTag := crypto.HMAC([32]byte(masterKey))
-
 	ownerID := uuid.NewV4()
-
 	now := time.Now().Unix()
 
 	indexTableNonce, err := crypto.Nonce12()
@@ -64,29 +61,34 @@ func NewSecretFile(path string, password []byte) (*SecretFile, error) {
 		return nil, err
 	}
 
+	header := Header{
+		Version:          0x01,            // file format version
+		CompleteFlag:     0x00,            // write not complete
+		EncryptionAlgo:   AlgoChacha20,    // default algorithm
+		ArgonMemoryLog2:  ArgonMemoryLog2, // 256 KiB memory, 1<<ArgonMemoryLog2
+		SecretCount:      0x00,
+		CreatedAt:        now,
+		ModifiedAt:       now,
+		DataSize:         0x00,
+		OwnerID:          ownerID,
+		ArgonSalt:        salt,
+		ArgonIterations:  ArgonIterations,
+		ArgonParallelism: ArgonParallelism,
+		Checksum:         [32]byte{},
+		VerificationTag:  [16]byte{},
+		EncryptedFEK:     encryptedFEK,
+		IndexTableOffset: 0x00,
+		IndexTableNonce:  indexTableNonce,
+		Reserved:         [60]byte{},
+	}
+
+	verificationTag := crypto.HMAC([32]byte(masterKey), header.AuthenticatedBytes())
+
+	header.VerificationTag = verificationTag
 	sf := &SecretFile{
 		f:         f,
 		masterKey: [32]byte(masterKey),
-		header: Header{
-			Version:          0x01,            // file format version
-			CompleteFlag:     0x00,            // write not complete
-			EncryptionAlgo:   AlgoChacha20,    // default algorithm
-			ArgonMemoryLog2:  ArgonMemoryLog2, // 256 KiB memory, 1<<ArgonMemoryLog2
-			SecretCount:      0x00,
-			CreatedAt:        now,
-			ModifiedAt:       now,
-			DataSize:         0x00,
-			OwnerID:          ownerID,
-			ArgonSalt:        salt,
-			ArgonIterations:  ArgonIterations,
-			ArgonParallelism: ArgonParallelism,
-			Checksum:         [32]byte{},
-			VerificationTag:  verificationTag,
-			EncryptedFEK:     encryptedFEK,
-			IndexTableOffset: 0x00,
-			IndexTableNonce:  indexTableNonce,
-			Reserved:         [60]byte{},
-		},
+		header:    header,
 		indexTable: IndexTable{
 			Secrets: []SecretMeta{},
 		},
@@ -172,7 +174,7 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 		return err
 	}*/
 
-	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag, sf.header.AuthenticatedBytes())
 	if err != nil {
 		return err
 	}
@@ -221,7 +223,7 @@ func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error 
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
-	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag, sf.header.AuthenticatedBytes())
 	if err != nil {
 		return err
 	}
@@ -309,7 +311,7 @@ func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 		return SecretData{}, err
 	}
 
-	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag, sf.header.AuthenticatedBytes())
 	if err != nil {
 		return SecretData{}, err
 	}
@@ -362,7 +364,7 @@ func (sf *SecretFile) ReadSecretToWriter(id string, w io.Writer) error {
 		return err
 	}
 
-	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag, sf.header.AuthenticatedBytes())
 	if err != nil {
 		return err
 	}
@@ -414,6 +416,7 @@ func (sf *SecretFile) Save() error {
 	}
 
 	sf.header.IndexTableOffset = payloadEnd
+	sf.header.VerificationTag = crypto.HMAC(sf.masterKey, sf.header.AuthenticatedBytes())
 
 	err := sf.writeIndexTable()
 	if err != nil {
@@ -596,7 +599,7 @@ func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
 }
 
 func (sf *SecretFile) writeIndexTable() error {
-	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag)
+	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag, sf.header.AuthenticatedBytes())
 	if err != nil {
 		return err
 	}

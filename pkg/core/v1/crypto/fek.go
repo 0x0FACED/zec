@@ -69,8 +69,8 @@ func EncryptFEK(masterKey []byte) (encryptedFEK [60]byte, err error) {
 }
 
 // DecryptFEK recovers the FEK using the master key and
-func DecryptFEK(masterKey []byte, encryptedFEK [60]byte, verificationTag [16]byte) (fek [32]byte, err error) {
-	expectedTag := HMAC([32]byte(masterKey))
+func DecryptFEK(masterKey []byte, encryptedFEK [60]byte, verificationTag [16]byte, headerBytes []byte) (fek [32]byte, err error) {
+	expectedTag := HMAC([32]byte(masterKey), headerBytes)
 
 	if !hmac.Equal(expectedTag[:VerificationTagSize], verificationTag[:]) {
 		err = ErrInvalidPassword

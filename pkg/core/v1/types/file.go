@@ -161,10 +161,24 @@ func (sf *SecretFile) Close() error {
 	return nil
 }
 
+// ExistsSecret checks if secret with provided name already exists.
+func (sf *SecretFile) ExistsSecret(meta *SecretMeta) bool {
+	for _, v := range sf.indexTable.Secrets {
+		if v.ID == meta.ID {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
+	if sf.ExistsSecret(&meta) {
+		return errors.New("secret with provided name already exists")
+	}
 	// zip + compress
 	dataBytes := StreamToByte(data)
 

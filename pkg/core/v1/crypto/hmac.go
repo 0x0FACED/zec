@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 )
 
-// HMAC calculates Verification Tag from master key.
+// HMAC calculates Verification Tag from master key and header authenticated fields.
 // Verification Tag used to verify password provided by user.
 func HMAC(masterKey [32]byte, headerPayload []byte) [16]byte {
 	// calculate verification tag

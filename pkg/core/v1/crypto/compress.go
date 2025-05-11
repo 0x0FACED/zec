@@ -7,8 +7,8 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// Compress compresses input data using zstd
-func Compress(data []byte) ([]byte, error) {
+// CompressZSTD compresses input data using zstd
+func CompressZSTD(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// default settings
@@ -30,8 +30,8 @@ func Compress(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Decompress decompresses zstd-compressed data
-func Decompress(data []byte) ([]byte, error) {
+// DecompressZSTD decompresses zstd-compressed data
+func DecompressZSTD(data []byte) ([]byte, error) {
 	decoder, err := zstd.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err

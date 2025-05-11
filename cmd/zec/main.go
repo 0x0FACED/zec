@@ -20,19 +20,21 @@ import (
 )
 
 var logger *zlog.ZerologLogger
+var rootCmd *cobra.Command
 
 func init() {
+	rootCmd = &cobra.Command{
+		Use:   "zec",
+		Short: "zec — a safe cli tool to store your secrets",
+	}
+
 	logger, _ = zlog.NewZerologLogger(zlog.LoggerConfig{
 		LogLevel: "info",
 	})
 }
 
 func main() {
-	rootCmd := &cobra.Command{
-		Use:   "zec",
-		Short: "zec — a safe cli tool to store your secrets",
-	}
-
+	rootCmd.AddCommand(completionCmd())
 	rootCmd.AddCommand(newCmd())
 	rootCmd.AddCommand(addCmd())
 	rootCmd.AddCommand(getCmd())
@@ -42,6 +44,63 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		logger.Error().Err(err).Msg("Error occured")
 		os.Exit(1)
+	}
+}
+
+func completionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate shell completion script",
+		// vibe coded long description
+		Long: `To load completions:
+
+Bash:
+
+  $ source <(zec completion bash)
+
+  # To load completions for each session, execute once:
+  # Linux:
+  $ zec completion bash > /etc/bash_completion.d/zec
+  # macOS:
+  $ zec completion bash > /usr/local/etc/bash_completion.d/zec
+
+Zsh:
+
+  # If shell completion is not already enabled in your environment,
+  # you will need to enable it. You can execute the following once:
+
+  $ echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+  $ zec completion zsh > "${fpath[1]}/_zec"
+
+Fish:
+
+  $ zec completion fish | source
+
+  $ zec completion fish > ~/.config/fish/completions/zec.fish
+
+PowerShell:
+
+  PS> zec completion powershell | Out-String | Invoke-Expression
+
+  # To load for every session:
+  PS> zec completion powershell > zec.ps1
+  # and source this file from your PowerShell profile.
+`,
+		Args:      cobra.MatchAll(cobra.ExactArgs(1)),
+		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
+		Run: func(cmd *cobra.Command, args []string) {
+			switch args[0] {
+			case "bash":
+				rootCmd.GenBashCompletion(os.Stdout)
+			case "zsh":
+				rootCmd.GenZshCompletion(os.Stdout)
+			case "fish":
+				rootCmd.GenFishCompletion(os.Stdout, true)
+			case "powershell":
+				rootCmd.GenPowerShellCompletion(os.Stdout)
+			}
+		},
 	}
 }
 
@@ -87,12 +146,10 @@ func addCmd() *cobra.Command {
 			path := filename + ".zec"
 			sf, err := file.Open(path, []byte(password))
 			if err != nil {
-				fmt.Println("Error open file: ", err)
 				return err
 			}
 
 			if err := sf.ValidateChecksum(); err != nil {
-				fmt.Println("Error validate checksum: ", err)
 				return err
 			}
 

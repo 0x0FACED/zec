@@ -3,6 +3,7 @@ package progress
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/schollz/progressbar/v3"
 )
@@ -25,6 +26,7 @@ func NewPrettyProgressBar(description string, size int64) *progressbar.ProgressB
 		progressbar.OptionSetElapsedTime(false),
 		progressbar.OptionSetPredictTime(false),
 		progressbar.OptionShowCount(),
+		progressbar.OptionThrottle(10*time.Millisecond),
 		progressbar.OptionSetWriter(os.Stdout),
 		progressbar.OptionOnCompletion(func() {
 			fmt.Println()
@@ -32,4 +34,24 @@ func NewPrettyProgressBar(description string, size int64) *progressbar.ProgressB
 	)
 
 	return bar
+}
+
+func NewStepBar(description string) *progressbar.ProgressBar {
+	return progressbar.NewOptions(
+		1,
+		progressbar.OptionSetDescription(description),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(20),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[green]=[reset]",
+			SaucerHead:    "[green]>[reset]",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+		progressbar.OptionOnCompletion(func() {
+			fmt.Println()
+		}),
+	)
 }

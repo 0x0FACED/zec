@@ -159,11 +159,13 @@ func addCmd() *cobra.Command {
 			if isFile(payload) {
 				f, err := os.Open(payload)
 				if err != nil {
+					return err
 				}
 				defer f.Close()
 
 				stat, err := f.Stat()
 				if err != nil {
+					return err
 				}
 
 				meta, err = types.NewSecretMetaWithType(name, uint64(stat.Size()), types.File)
@@ -171,17 +173,22 @@ func addCmd() *cobra.Command {
 					return err
 				}
 				reader = f
+
+				err = sf.WriteSecretFromReader(meta, reader)
+				if err != nil {
+					return err
+				}
 			} else {
 				meta, err = types.NewSecretMetaWithType(name, uint64(len(payload)), types.PlainText)
 				if err != nil {
 					return err
 				}
 				reader = bytes.NewReader([]byte(payload))
-			}
 
-			err = sf.WriteSecret(meta, reader)
-			if err != nil {
-				return err
+				err = sf.WriteSecret(meta, reader)
+				if err != nil {
+					return err
+				}
 			}
 
 			if err := sf.Save(); err != nil {
@@ -358,7 +365,7 @@ func renderSecretList(secrets []types.SecretMeta) {
 	t.SetStyle(table.StyleRounded)
 	t.Style().Format.Header = text.FormatTitle
 
-	t.AppendHeader(table.Row{"Name", "Created At", "Modified At", "Offset in file", "Size", "Type", "Flags"})
+	t.AppendHeader(table.Row{"Name", "Created At", "Modified At", "Offset in file", "Size", "Type", "Encrypt Mode", "Flags"})
 
 	for _, meta := range secrets {
 		createdTime := formatTimestamp(int64(meta.CreatedAt))
@@ -371,6 +378,7 @@ func renderSecretList(secrets []types.SecretMeta) {
 			meta.Offset,
 			readableSize(meta.Size),
 			meta.TypeString(),
+			meta.EncryptModeString(),
 			meta.Flags,
 		})
 	}

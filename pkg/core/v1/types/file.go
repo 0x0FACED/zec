@@ -16,7 +16,6 @@ import (
 	"github.com/0x0FACED/uuid"
 	"github.com/0x0FACED/zec/pkg/core/progress"
 	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // default params for argon
@@ -210,8 +209,8 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	meta.Offset = uint64(offset)
 	meta.CreatedAt = uint64(time.Now().Unix())
 	meta.ModifiedAt = meta.CreatedAt
-	meta.Nonce = nonce
-
+	copy(meta.Nonce[:], nonce[:12])
+	meta.EncryptMode = AEAD
 	// change
 	meta.Flags = FlagUndefined
 
@@ -242,11 +241,12 @@ func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error 
 		return err
 	}
 
-	nonce, err := crypto.Nonce12()
+	nonce, err := crypto.Nonce24()
 	if err != nil {
 		return err
 	}
-	meta.Nonce = nonce
+	copy(meta.Nonce[:], nonce[:24])
+	meta.EncryptMode = AEAD
 
 	offset, err := sf.f.Seek(int64(sf.payloadEndOffset()), io.SeekStart)
 	if err != nil {
@@ -254,56 +254,28 @@ func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error 
 	}
 	meta.Offset = uint64(offset)
 
-	aead, err := chacha20poly1305.New(fek[:])
+	err = crypto.EncryptXChaCha20Poly1305(fek[:], nonce[:], r, sf.f)
 	if err != nil {
 		return err
 	}
 
-	pr, pw := io.Pipe()
-
-	total := 0
-	go func() {
-		defer pw.Close()
-
-		buf := make([]byte, 4096)
-		for {
-			n, err := r.Read(buf)
-			if n > 0 {
-				block := buf[:n]
-				enc := aead.Seal(nil, nonce[:], block, nil)
-				if _, err := pw.Write(enc); err != nil {
-					return
-				}
-				total += len(enc)
-			}
-			if err == io.EOF {
-				return
-			}
-			if err != nil {
-				pw.CloseWithError(err)
-				return
-			}
-		}
-	}()
-
-	nWritten, err := io.Copy(sf.f, pr)
+	endOffset, err := sf.f.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return err
 	}
-	meta.Size = uint64(nWritten)
-
-	fmt.Println("Written: ", nWritten)
-	fmt.Println("Encrypted: ", total)
+	meta.Size = uint64(endOffset - offset)
 
 	now := uint64(time.Now().Unix())
 	meta.CreatedAt = now
 	meta.ModifiedAt = now
 	meta.Flags = FlagCompleted
+	meta.EncryptMode = Streaming
 
 	sf.indexTable.Secrets = append(sf.indexTable.Secrets, meta)
 	sf.header.SecretCount++
 	sf.header.ModifiedAt = int64(now)
 	sf.header.DataSize += meta.Size
+	meta.Flags = FlagCompleted
 
 	return nil
 }
@@ -315,6 +287,7 @@ func StreamToByte(stream io.Reader) []byte {
 	return buf.Bytes()
 }
 
+// ReadSecret reads secret using decryption with chacha20 (nonce size is 12)
 func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
@@ -357,7 +330,7 @@ func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 		return SecretData{}, err
 	}
 
-	secretData, err := crypto.DecryptChaCha20Poly1305(fek[:], meta.Nonce[:], encryptedBuf)
+	secretData, err := crypto.DecryptChaCha20Poly1305(fek[:], meta.Nonce[:12], encryptedBuf)
 	if err != nil {
 		return SecretData{}, err
 	}
@@ -399,23 +372,16 @@ func (sf *SecretFile) ReadSecretToWriter(id string, w io.Writer) error {
 		return err
 	}
 
-	bar := progress.NewPrettyProgressBar("reading encrypted secret", int64(meta.Size))
-	encryptedBuf := make([]byte, meta.Size)
-	reader := io.TeeReader(io.LimitReader(sf.f, int64(meta.Size)), bar)
+	reader := io.LimitReader(sf.f, int64(meta.Size))
+	bar := progress.NewPrettyProgressBar("decrypting stream", int64(meta.Size))
+	progressReader := io.TeeReader(reader, bar)
 
-	_, err = io.ReadFull(reader, encryptedBuf)
+	err = crypto.DecryptXChaCha20Poly1305(fek[:], meta.Nonce[:], progressReader, w)
 	if err != nil {
 		return err
 	}
 
-	plaintext, err := crypto.DecryptChaCha20Poly1305(fek[:], meta.Nonce[:], encryptedBuf)
-	if err != nil {
-		return err
-	}
-
-	bar2 := progress.NewPrettyProgressBar("writing plaintext", int64(len(plaintext)))
-	_, err = io.Copy(io.MultiWriter(w, bar2), bytes.NewReader(plaintext))
-	return err
+	return nil
 }
 
 func (sf *SecretFile) Save() error {

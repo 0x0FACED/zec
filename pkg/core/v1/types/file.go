@@ -164,7 +164,7 @@ func (sf *SecretFile) Close() error {
 // ExistsSecret checks if secret with provided name already exists.
 func (sf *SecretFile) ExistsSecret(meta *SecretMeta) bool {
 	for _, v := range sf.indexTable.Secrets {
-		if v.ID == meta.ID {
+		if v.Name == meta.Name {
 			return true
 		}
 	}
@@ -333,7 +333,7 @@ func (sf *SecretFile) ReadSecret(id string) (SecretData, error) {
 	// search for correct secret meta
 	var meta *SecretMeta
 	for i := range sf.indexTable.Secrets {
-		if sf.indexTable.Secrets[i].ID == idBytes {
+		if sf.indexTable.Secrets[i].Name == idBytes {
 			meta = &sf.indexTable.Secrets[i]
 			break
 		}
@@ -385,7 +385,7 @@ func (sf *SecretFile) ReadSecretToWriter(id string, w io.Writer) error {
 
 	var meta *SecretMeta
 	for i := range sf.indexTable.Secrets {
-		if sf.indexTable.Secrets[i].ID == idBytes {
+		if sf.indexTable.Secrets[i].Name == idBytes {
 			meta = &sf.indexTable.Secrets[i]
 			break
 		}

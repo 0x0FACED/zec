@@ -358,19 +358,19 @@ func renderSecretList(secrets []types.SecretMeta) {
 	t.SetStyle(table.StyleRounded)
 	t.Style().Format.Header = text.FormatTitle
 
-	t.AppendHeader(table.Row{"ID", "Created At", "Modified At", "Offset in file", "Size", "Type", "Flags"})
+	t.AppendHeader(table.Row{"Name", "Created At", "Modified At", "Offset in file", "Size", "Type", "Flags"})
 
 	for _, meta := range secrets {
 		createdTime := formatTimestamp(int64(meta.CreatedAt))
 		modifiedTime := formatTimestamp(int64(meta.ModifiedAt))
 
 		t.AppendRow(table.Row{
-			string(meta.ID[:]),
+			string(meta.Name[:]),
 			createdTime,
 			modifiedTime,
 			meta.Offset,
 			readableSize(meta.Size),
-			meta.Type,
+			meta.TypeString(),
 			meta.Flags,
 		})
 	}

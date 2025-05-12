@@ -36,39 +36,46 @@ Use "zec [command] --help" for more information about a command.
 Lets create new secret file:
 
 ```sh
-$ ./zec new --file secrets
+$ ./zec new --file=test
 Enter password for file: test
-6:28PM INF File successfully created file=secrets.zec
+re-calculating HMAC 100% [====================] (1/1)
+re-writing index table 100% [====================] (1/1)
+re-writing header [1/2] 100% [====================] (1/1)
+calculating checksum 100% [====================] (1/1)
+re-writing header [2/2] 100% [====================] (1/1)
+syncing file 100% [====================] (1/1)
+5:51PM INF File successfully created file=test.zec
 ```
 
 We can easily check header of file and secrets meta:
 
 ```sh
-$ ./zec header --file secrets
+$ ./zec header --file test
 Enter password: test
+calculating checksum 100% [====================] (1/1)
 ╭────────────────────┬─────────────────────────────────────────────────────────────────────╮
 │ Field              │ Value                                                               │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ Version            │ 0x01                                                                │
 │ CompleteFlag       │ 7                                                                   │
-│ Created At         │ Thu, 08 May 2025 18:28:11 +0300                                     │
-│ Modified At        │ Thu, 08 May 2025 18:28:11 +0300                                     │
+│ Created At         │ Mon, 12 May 2025 17:51:41 +0300                                     │
+│ Modified At        │ Mon, 12 May 2025 17:51:41 +0300                                     │
 │ Secret Count       │ 0                                                                   │
 │ Data Size          │ 0 bytes                                                             │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ Argon Memory       │ 256.0 KiB                                                           │
 │ Argon Iterations   │ 5                                                                   │
 │ Argon Parallelism  │ 1                                                                   │
-│ Argon Salt         │ 5496c35685f7eff72192e9ed57126376                                    │
+│ Argon Salt         │ 6f20c6752b981c3e140e75a60a037eec                                    │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ Encryption Algo    │ 1                                                                   │
-│ Owner ID           │ 9b0e4e6b278241a4a762fa3b6b0fc76b                                    │
-│ Verification Tag   │ 0eaacebb82e4a31956fcf75938ba2801                                    │
-│ Encrypted FEK      │ 1d3fe057ec100fe6f9c1f7a4314961513341725836c043c4ddfb11186c1c0713... │
-│ Checksum (SHA-256) │ c9ca20689c634a022a126d18b278c7a9ae12688e982aeb75850acc2dec300fac    │
+│ Owner ID           │ 30326815beae46948891472d3ec4989b                                    │
+│ Verification Tag   │ caad66ad6dd3a5d8d653281b50d8f06b                                    │
+│ Encrypted FEK      │ 687341c0485a88ddbebbfb2d2fbbddefc90beec773cf14bc10a4eaa2bbb6b2d7... │
+│ Checksum (SHA-256) │ 48aaac4b5b491a96c75f9146f10e0a96da2bb30d74572a6277ab6b181a243bb1    │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ Index Table Offset │ 256                                                                 │
-│ Index Table Nonce  │ 42ada8b3a1325153ab8b9193                                            │
+│ Index Table Nonce  │ 9340bb3d5dfce4bc86732c04                                            │
 ╰────────────────────┴─────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -83,7 +90,7 @@ Enter password: test
 - **Argon Iterations** = 5 - number of argon iterations
 - **Argon Parallelism** = 1 - how much threads will be used
 - **Argon Salt** - generated salt for argon
-- **Encryption Algo** = 1 - ChaCha20Poly1305. Other algos is not supported yet
+- **Encryption Algo** = 1 - ChaCha20Poly1305. Other algos is not supported yet. This will be removed, because secrets can be encrypted with any algorithm (xchacha20, chacha20. aes in the future)
 - **Owner ID** - just UUIDv4 generated for file
 - **Verification Tag** - calculated HMAC tag from master key which generated from password with argon
 -  **Encrypted FEK** - encrypted file encryption key that used to encrypt all secrets
@@ -91,94 +98,102 @@ Enter password: test
 -  **Index Table Offset** = 256 - offset of index table (currenty there is not index table because of 0 secrets stored)
 -  **Index Table Nonce** - nonce for encryption index table
 
-Okay, lets add one secret:
+Okay, lets add two secrets. First - plain text, Second - large 900mb video file:
 
 ```sh
-$ ./zec add --file secrets --name mysecret --payload my_github_token
+$ ./zec add --file test --name secret1 --payload my_ssh
 Enter password: test
-writing encrypted data 100% |██████████████████████████████████████████████████████████████████████████████████████████| (31/31 B, 415 kB/s)        
-6:41PM INF Secret successfully added to file file=secrets.zec secret_name=mysecret
+calculating checksum 100% [====================] (1/1)
+writing encrypted data 100% [==============================] (22/22 B, 352 kB/s) 
+re-calculating HMAC 100% [====================] (1/1)
+re-writing index table 100% [====================] (1/1)
+re-writing header [1/2] 100% [====================] (1/1)
+calculating checksum 100% [====================] (1/1)
+re-writing header [2/2] 100% [====================] (1/1)
+syncing file 100% [====================] (1/1)
+5:55PM INF Secret successfully added to file file=test.zec secret_name=secret1
+
+$ ./zec add --file test --name secret_video_900mb --payload "/path/to/large.mp4"
+Enter password: test
+calculating checksum 100% [====================] (1/1)
+encrypting data 100% [==============================] (983/983 MB, 284 MB/s) 
+re-calculating HMAC 100% [====================] (1/1)
+re-writing index table 100% [====================] (1/1)
+re-writing header [1/2] 100% [====================] (1/1)
+calculating checksum 100% [====================] (1/1)
+re-writing header [2/2] 100% [====================] (1/1)
+syncing file 100% [====================] (1/1)
+5:58PM INF Secret successfully added to file file=test.zec secret_name=secret_video_900mb
 ```
 
-Lets check index table and header after adding secret:
+Lets check index table and header after adding secrets:
 
 ```sh
-$ ./zec list --file secrets
+$ ./zec list --file test
 Enter password: test
-╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Secrets                                                                                                                 │
-├──────────┬─────────────────────────────────┬─────────────────────────────────┬────────────────┬──────────┬──────┬───────┤
-│ ID       │ Created At                      │ Modified At                     │ Offset In File │ Size     │ Type │ Flags │
-├──────────┼─────────────────────────────────┼─────────────────────────────────┼────────────────┼──────────┼──────┼───────┤
-│ mysecret │ Thu, 08 May 2025 18:41:01 +0300 │ Thu, 08 May 2025 18:41:01 +0300 │            256 │ 31 bytes │    1 │     0 │
-╰──────────┴─────────────────────────────────┴─────────────────────────────────┴────────────────┴──────────┴──────┴───────╯
+calculating checksum 100% [====================] (1/1)
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Secrets                                                                                                                                          │
+├────────────────────┬─────────────────────────────────┬─────────────────────────────────┬────────────────┬──────────┬──────┬──────────────┬───────┤
+│ Name               │ Created At                      │ Modified At                     │ Offset In File │ Size     │ Type │ Encrypt Mode │ Flags │
+├────────────────────┼─────────────────────────────────┼─────────────────────────────────┼────────────────┼──────────┼──────┼──────────────┼───────┤
+│ secret1            │ Mon, 12 May 2025 17:55:56 +0300 │ Mon, 12 May 2025 17:55:56 +0300 │            256 │ 22 bytes │ Text │ AEAD         │     0 │
+│ secret_video_900mb │ Mon, 12 May 2025 17:58:43 +0300 │ Mon, 12 May 2025 17:58:43 +0300 │            278 │ 0.9 GiB  │ File │ Streaming    │     1 │
+╰────────────────────┴─────────────────────────────────┴─────────────────────────────────┴────────────────┴──────────┴──────┴──────────────┴───────╯
 
-$ ./zec header --file secrets
+$ ./zec header --file test
 Enter password: test
+calculating checksum 100% [====================] (1/1)
 ╭────────────────────┬─────────────────────────────────────────────────────────────────────╮
 │ Field              │ Value                                                               │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ Version            │ 0x01                                                                │
 │ CompleteFlag       │ 7                                                                   │
-│ Created At         │ Thu, 08 May 2025 18:28:11 +0300                                     │
-│ Modified At        │ Thu, 08 May 2025 18:41:01 +0300                                     │
-│ Secret Count       │ 1                                                                   │
-│ Data Size          │ 31 bytes                                                            │
+│ Created At         │ Mon, 12 May 2025 17:51:41 +0300                                     │
+│ Modified At        │ Mon, 12 May 2025 17:58:43 +0300                                     │
+│ Secret Count       │ 2                                                                   │
+│ Data Size          │ 0.9 GiB                                                             │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ Argon Memory       │ 256.0 KiB                                                           │
 │ Argon Iterations   │ 5                                                                   │
 │ Argon Parallelism  │ 1                                                                   │
-│ Argon Salt         │ 5496c35685f7eff72192e9ed57126376                                    │
+│ Argon Salt         │ 6f20c6752b981c3e140e75a60a037eec                                    │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
 │ Encryption Algo    │ 1                                                                   │
-│ Owner ID           │ 9b0e4e6b278241a4a762fa3b6b0fc76b                                    │
-│ Verification Tag   │ 0eaacebb82e4a31956fcf75938ba2801                                    │
-│ Encrypted FEK      │ 1d3fe057ec100fe6f9c1f7a4314961513341725836c043c4ddfb11186c1c0713... │
-│ Checksum (SHA-256) │ 4eaea338fea66d2dd4890d02426c391e07802e55a3d9e34a629e31c4a80b5cc5    │
+│ Owner ID           │ 30326815beae46948891472d3ec4989b                                    │
+│ Verification Tag   │ a215592b0519ff0e979b16f3680fb2a0                                    │
+│ Encrypted FEK      │ 687341c0485a88ddbebbfb2d2fbbddefc90beec773cf14bc10a4eaa2bbb6b2d7... │
+│ Checksum (SHA-256) │ 34b613481f8a8f6d99740d85fd103617b00f90474ef1af054978884ebeaaa292    │
 ├────────────────────┼─────────────────────────────────────────────────────────────────────┤
-│ Index Table Offset │ 287                                                                 │
-│ Index Table Nonce  │ 42ada8b3a1325153ab8b9193                                            │
+│ Index Table Offset │ 983380018                                                           │
+│ Index Table Nonce  │ 9340bb3d5dfce4bc86732c04                                            │
 ╰────────────────────┴─────────────────────────────────────────────────────────────────────╯
 ```
 
-Lets get or secret:
+Lets print text secret:
 
 ```sh
-$ ./zec get --file secrets --name mysecret
+$ ./zec get --file test --name secret1
 Enter password: test
-6:45PM INF my_github_token
+calculating checksum 100% [====================] (1/1)
+converting name to bytes 100% [====================] (1/1)
+decrypting FEK 100% [====================] (1/1)
+reading secret 100% [==============================] (22/22 B, 1.3 MB/s) 
+decrypting data 100% [====================] (1/1)
+6:03PM INF my_ssh
 
-OR
+// or you can use flag --out to save secret to file to provided path
 
-$ ./zec get --file secrets --name mysecret --out ./test.txt
+$ ./zec get --file test --name secret_video_900mb --out ./test.mp4
 Enter password: test
-reading encrypted secret 100% |████████████████████████████████████████████████████████████████████████████████████████| (31/31 B, 781 kB/s)        
-writing plaintext 100% |███████████████████████████████████████████████████████████████████████████████████████████████| (15/15 B, 338 kB/s)        
-6:45PM INF Secret exported file=secrets.zec out=./test.txt secret_name=mysecret
+calculating checksum 100% [====================] (1/1)
+converting name to bytes 100% [====================] (1/1)
+decrypting FEK 100% [====================] (1/1)
+decrypting data 100% [==============================] (983/983 MB, 185 MB/s) 
+6:04PM INF Secret exported file=test.zec out=./test.mp4 secret_name=secret_video_900mb
 ```
 
-Now `test.txt` contains or secret (**my_github_token**).
-
-Lets add file to secret file:
-
-```sh
-$ ./zec add --file secrets --name my_go.mod --payload ./go.mod
-Enter password: test
-writing encrypted data 100% |████████████████████████████████████████████████████████████████████████████████████████| (1.1/1.1 kB, 13 MB/s)        
-6:47PM INF Secret successfully added to file file=secrets.zec secret_name=my_go.mod
-```
-
-And than extract file from secret storage:
-
-```sh
-$ ./zec get --file secrets --name my_go.mod --out ./test_gomod.txt
-Enter password: test
-reading encrypted secret 100% |██████████████████████████████████████████████████████████████████████████████████████| (1.1/1.1 kB, 25 MB/s)        
-writing plaintext 100% |████████████████████████████████████████████████████████████████████████████████████████████| (1.0/1.0 kB, 3.3 MB/s)        
-6:49PM INF Secret exported file=secrets.zec out=./test_gomod.txt secret_name=my_go.mod
-```
-
-Now we have all content of `go.mod` in `./test_gomod.txt` file!
+Now `test.mp4` is our `/path/to/large.mp4`.
 
 ## File structure
 
@@ -238,23 +253,27 @@ Secret meta contains the next fields:
 
 ```go
 // fixed size secret metadata structure
-// 64 bytes
+// 94 bytes
 type SecretMeta struct {
-	ID         [16]byte // 16 bytes, secret ID (name or uuid). if name not provided - use uuid (not good)
-	Offset     uint64   // 8 bytes, offset of the secret in the file
-	Size       uint64   // 8 bytes, size of the secret
-	CreatedAt  uint64   // 8 bytes, time of creation (unix)
-	ModifiedAt uint64   // 8 bytes, time of last modification (unix)
-	Type       uint8    // 1 byte, secret type (0x01 — file, 0x02 — text, 0x03 — binary for example)
-	Flags      uint8    // 1 byte, bit flags (0x01 — encrypted, 0x02 — compressed, 0x04 — deleted for example)
-	Nonce      [12]byte // 12 bytes, iv for encryption (chacha20 or aes-gcm)
-	Reserved   [2]byte  // 2 bytes, reserved for future use (2 bytes)
+	// UUID is not used. flag --name is required
+	Name        [32]byte // 32 bytes, secret ID (name or uuid). if name not provided - use uuid (not good)
+	Offset      uint64   // 8 bytes, offset of the secret in the file
+	Size        uint64   // 8 bytes, size of the secret
+	CreatedAt   uint64   // 8 bytes, time of creation (unix)
+	ModifiedAt  uint64   // 8 bytes, time of last modification (unix)
+	Type        uint8    // 1 byte, secret type (0x01 — file, 0x02 — text, 0x03 — binary for example)
+	Flags       uint8    // 1 byte, bit flags (0x01 — encrypted, 0x02 — compressed, 0x04 — deleted for example)
+	_           [1]byte  // padding
+	Nonce       [24]byte // 24 bytes, iv for encryption (chacha20[:12] xchacha20[:],  or aes-gcm[:12])
+	EncryptMode uint8    // 1 byte, AEAD or Streaming chacha20
 }
 ```
 
 You may found this struct in `pkg/core/v1/types/secret_meta.go`
 
 ## How it works
+
+	TODO: update
 
 Secrets can be any data: **plain text, any files**. 
 

@@ -14,6 +14,15 @@ func Nonce12() ([12]byte, error) {
 	return nonce, nil
 }
 
+func Nonce24() ([24]byte, error) {
+	var nonce [24]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return [24]byte{}, fmt.Errorf("failed to generate nonce: %w", err)
+	}
+
+	return nonce, nil
+}
+
 func Salt16() ([16]byte, error) {
 	var salt [16]byte
 	if _, err := rand.Read(salt[:]); err != nil {

@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 )
 
 const (
@@ -13,7 +14,7 @@ const (
 // 256 bytes
 type Header struct {
 	Version          uint8    // 1 byte — file version (0x01)
-	CompleteFlag     uint8    // 1 byte — did write complete
+	Flags            uint8    // 1 byte — flags
 	EncryptionAlgo   uint8    // 1 byte — ecnryption algorithm
 	ArgonMemoryLog2  uint8    // 1 byte — log2(memory in KB) for Argon2
 	SecretCount      uint32   // 4 bytes — secret count
@@ -56,4 +57,16 @@ func (h *Header) AuthenticatedBytes() []byte {
 	buf.Write(h.Reserved[:])        // 60 bytes
 
 	return buf.Bytes()
+}
+
+// move to func
+func (h *Header) FlagsString() string {
+	var flags []string
+	for flag, name := range FlagNames {
+		if h.Flags&flag != 0 { // flag is setted
+			flags = append(flags, name)
+		}
+	}
+
+	return strings.Join(flags, "|")
 }

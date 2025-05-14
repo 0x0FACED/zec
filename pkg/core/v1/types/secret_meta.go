@@ -1,6 +1,9 @@
 package types
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 const (
 	PlainText = 0x01
@@ -90,6 +93,18 @@ func (sm SecretMeta) EncryptModeString() string {
 	default:
 		return "Unknown"
 	}
+}
+
+// move to func
+func (meta *SecretMeta) FlagsString() string {
+	var flags []string
+	for flag, name := range FlagNames {
+		if meta.Flags&flag != 0 { // flag is setted
+			flags = append(flags, name)
+		}
+	}
+
+	return strings.Join(flags, "|")
 }
 
 func (sm *SecretMeta) SetOffset(offset uint64) {

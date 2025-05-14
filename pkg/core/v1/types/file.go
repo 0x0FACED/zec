@@ -210,7 +210,7 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	meta.CreatedAt = uint64(time.Now().Unix())
 	meta.ModifiedAt = meta.CreatedAt
 	copy(meta.Nonce[:], nonce[:12])
-	meta.EncryptMode = AEAD
+	meta.EncryptMode = EncryptModeChaCha20Poly1305
 	// change
 	meta.Flags = FlagUndefined
 
@@ -247,7 +247,7 @@ func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error 
 	}
 	copy(meta.Nonce[:], nonce[:24])
 	meta.Flags = FlagUndefined
-	meta.EncryptMode = AEAD
+	meta.EncryptMode = EncryptModeChaCha20Poly1305
 
 	offset, err := sf.f.Seek(int64(sf.payloadEndOffset()), io.SeekStart)
 	if err != nil {
@@ -274,7 +274,7 @@ func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error 
 	meta.CreatedAt = now
 	meta.ModifiedAt = now
 	meta.Flags = FlagCompleted | FlagEncrypted
-	meta.EncryptMode = Streaming
+	meta.EncryptMode = EncryptModeXChaCha20Poly1305
 
 	sf.indexTable.Secrets = append(sf.indexTable.Secrets, meta)
 	sf.header.SecretCount++

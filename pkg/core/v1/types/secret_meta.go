@@ -2,6 +2,7 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -11,8 +12,8 @@ const (
 )
 
 const (
-	AEAD      = 0x01
-	Streaming = 0x02
+	EncryptModeChaCha20Poly1305  = 0x01
+	EncryptModeXChaCha20Poly1305 = 0x02
 )
 
 // fixed size secret metadata structure
@@ -28,7 +29,7 @@ type SecretMeta struct {
 	Flags       uint8    // 1 byte, bit flags (0x01 — encrypted, 0x02 — compressed, 0x04 — deleted for example)
 	_           [1]byte  // padding
 	Nonce       [24]byte // 24 bytes, iv for encryption (chacha20[:12] xchacha20[:],  or aes-gcm[:12])
-	EncryptMode uint8    // 1 byte, AEAD or Streaming chacha20
+	EncryptMode uint8    // 1 byte, EncryptModeChaCha20Poly1305 or EncryptModeXChaCha20Poly1305
 }
 
 // NewSecretMeta used for plain text
@@ -84,14 +85,14 @@ func (sm SecretMeta) TypeString() string {
 	}
 }
 
-func (sm SecretMeta) EncryptModeString() string {
-	switch sm.EncryptMode {
-	case AEAD:
-		return "AEAD"
-	case Streaming:
-		return "Streaming"
+func (s SecretMeta) EncryptModeString() string {
+	switch s.EncryptMode {
+	case EncryptModeChaCha20Poly1305:
+		return "ChaCha20-Poly1305"
+	case EncryptModeXChaCha20Poly1305:
+		return "XChaCha20-Poly1305"
 	default:
-		return "Unknown"
+		return fmt.Sprintf("Unknown (0x%02X)", s.EncryptMode)
 	}
 }
 

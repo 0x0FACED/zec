@@ -437,7 +437,7 @@ func renderColoredSecretList(secrets []types.SecretMeta, all bool) {
 	t.Style().Color.Header = text.Colors{text.FgMagenta}
 	t.Style().Color.Row = text.Colors{text.FgGreen}
 
-	t.AppendHeader(table.Row{"Name", "Added ad", "Last modified at", "Offset in file", "Size", "Type", "Encrypt Mode", "Flags"})
+	t.AppendHeader(table.Row{"Name", "Added at", "Last modified at", "Offset in file", "Size", "Type", "Encrypt Mode", "Flags"})
 
 	for _, meta := range secrets {
 		if !all {

@@ -62,7 +62,7 @@ func NewSecretFile(path string, password []byte) (*SecretFile, error) {
 
 	header := Header{
 		Version:          0x01,            // file format version
-		CompleteFlag:     0x00,            // write not complete
+		Flags:            0x00,            // write not complete
 		EncryptionAlgo:   AlgoChacha20,    // default algorithm
 		ArgonMemoryLog2:  ArgonMemoryLog2, // 256 KiB memory, 1<<ArgonMemoryLog2
 		SecretCount:      0x00,
@@ -221,17 +221,17 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	}
 
 	meta.Size = uint64(n)
+	meta.Flags = FlagCompleted | FlagEncrypted
 	sf.indexTable.Secrets = append(sf.indexTable.Secrets, meta)
 	sf.header.SecretCount++
 	sf.header.ModifiedAt = time.Now().Unix()
 	sf.header.DataSize += uint64(n)
-	// at the end of writing change flag
-	meta.Flags = FlagCompleted
 
 	return nil
 }
 
-// WriteSecretFromReader used for writing files (works incorrectly)
+// WriteSecretFromReader used for writing files.
+// Uses 24 byte nonce for xChaCha20.
 func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
@@ -246,6 +246,7 @@ func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error 
 		return err
 	}
 	copy(meta.Nonce[:], nonce[:24])
+	meta.Flags = FlagUndefined
 	meta.EncryptMode = AEAD
 
 	offset, err := sf.f.Seek(int64(sf.payloadEndOffset()), io.SeekStart)
@@ -272,14 +273,13 @@ func (sf *SecretFile) WriteSecretFromReader(meta SecretMeta, r io.Reader) error 
 	now := uint64(time.Now().Unix())
 	meta.CreatedAt = now
 	meta.ModifiedAt = now
-	meta.Flags = FlagCompleted
+	meta.Flags = FlagCompleted | FlagEncrypted
 	meta.EncryptMode = Streaming
 
 	sf.indexTable.Secrets = append(sf.indexTable.Secrets, meta)
 	sf.header.SecretCount++
 	sf.header.ModifiedAt = int64(now)
 	sf.header.DataSize += meta.Size
-	meta.Flags = FlagCompleted
 
 	return nil
 }
@@ -296,15 +296,15 @@ func (sf *SecretFile) ReadSecret(name string) (SecretData, error) {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
-	stepBar := progress.NewStepBar("converting name to bytes")
-	// get [16]byte id from string id
-	idBytes, err := stringToBytes(name)
+	stepBar := progress.NewStepBar("converting name to bytes", 1)
+	// get [16]byte name from string name
+	nameBytes, err := stringToBytes(name)
 	if err != nil {
 		return SecretData{}, err
 	}
 	stepBar.Add(1)
 
-	stepBar = progress.NewStepBar("decrypting FEK")
+	stepBar = progress.NewStepBar("decrypting FEK", 1)
 	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag, sf.header.AuthenticatedBytes())
 	if err != nil {
 		return SecretData{}, err
@@ -314,7 +314,7 @@ func (sf *SecretFile) ReadSecret(name string) (SecretData, error) {
 	// search for correct secret meta
 	var meta *SecretMeta
 	for i := range sf.indexTable.Secrets {
-		if sf.indexTable.Secrets[i].Name == idBytes {
+		if sf.indexTable.Secrets[i].Name == nameBytes {
 			meta = &sf.indexTable.Secrets[i]
 			break
 		}
@@ -341,7 +341,7 @@ func (sf *SecretFile) ReadSecret(name string) (SecretData, error) {
 		return SecretData{}, err
 	}
 
-	stepBar = progress.NewStepBar("decrypting data")
+	stepBar = progress.NewStepBar("decrypting data", 1)
 	secretData, err := crypto.DecryptChaCha20Poly1305(fek[:], meta.Nonce[:12], encryptedBuf)
 	if err != nil {
 		return SecretData{}, err
@@ -359,14 +359,14 @@ func (sf *SecretFile) ReadSecretToWriter(name string, w io.Writer) error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
-	stepBar := progress.NewStepBar("converting name to bytes")
-	idBytes, err := stringToBytes(name)
+	stepBar := progress.NewStepBar("converting name to bytes", 1)
+	nameBytes, err := stringToBytes(name)
 	if err != nil {
 		return err
 	}
 	stepBar.Add(1)
 
-	stepBar = progress.NewStepBar("decrypting FEK")
+	stepBar = progress.NewStepBar("decrypting FEK", 1)
 	fek, err := crypto.DecryptFEK(sf.masterKey[:], sf.header.EncryptedFEK, sf.header.VerificationTag, sf.header.AuthenticatedBytes())
 	if err != nil {
 		return err
@@ -375,7 +375,7 @@ func (sf *SecretFile) ReadSecretToWriter(name string, w io.Writer) error {
 
 	var meta *SecretMeta
 	for i := range sf.indexTable.Secrets {
-		if sf.indexTable.Secrets[i].Name == idBytes {
+		if sf.indexTable.Secrets[i].Name == nameBytes {
 			meta = &sf.indexTable.Secrets[i]
 			break
 		}
@@ -401,9 +401,36 @@ func (sf *SecretFile) ReadSecretToWriter(name string, w io.Writer) error {
 	return nil
 }
 
+// DeleteSecretSoft marks secret as deleted (FlagDeleted)
+func (sf *SecretFile) DeleteSecretSoft(name string) error {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	stepBar := progress.NewStepBar("converting name to bytes", 1)
+	nameBytes, err := stringToBytes(name)
+	if err != nil {
+		return err
+	}
+	stepBar.Add(1)
+
+	meta, err := sf.indexTable.SecretByName(nameBytes)
+	if err != nil {
+		return err
+	}
+
+	// mark as deleted
+	meta.Flags |= FlagDeleted
+	// update modify time
+	meta.ModifiedAt = uint64(time.Now().Unix())
+
+	return nil
+}
+
 func (sf *SecretFile) Save() error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
+
+	fullProgressBar := progress.NewStepBar("saving file", 6)
 
 	payloadEnd := sf.payloadEndOffset()
 
@@ -413,16 +440,20 @@ func (sf *SecretFile) Save() error {
 	}
 
 	sf.header.IndexTableOffset = payloadEnd
-	stepBar := progress.NewStepBar("re-calculating HMAC")
+	stepBar := progress.NewStepBar("re-calculating HMAC", 1)
 	sf.header.VerificationTag = crypto.HMAC(sf.masterKey, sf.header.AuthenticatedBytes())
-	stepBar.Add(1)
 
-	stepBar = progress.NewStepBar("re-writing index table")
+	stepBar.Add(1)
+	fullProgressBar.Add(1)
+
+	stepBar = progress.NewStepBar("re-writing index table", 1)
 	err := sf.writeIndexTable()
 	if err != nil {
 		return err
 	}
+
 	stepBar.Add(1)
+	fullProgressBar.Add(1)
 
 	_, err = sf.f.Seek(0, io.SeekStart)
 	if err != nil {
@@ -430,26 +461,30 @@ func (sf *SecretFile) Save() error {
 	}
 
 	// set up all flags
-	sf.header.CompleteFlag = FlagCompleted | FlagEncrypted | FlagCompressed
+	sf.header.Flags = FlagCompleted | FlagEncrypted
 
 	_, err = sf.f.Seek(0, io.SeekStart)
 	if err != nil {
 		return err
 	}
 
-	stepBar = progress.NewStepBar("re-writing header [1/2]")
+	stepBar = progress.NewStepBar("[1/2] re-writing header", 1)
 	err = sf.writeHeader()
 	if err != nil {
 		return err
 	}
-	stepBar.Add(1)
 
-	stepBar = progress.NewStepBar("calculating checksum")
+	stepBar.Add(1)
+	fullProgressBar.Add(1)
+
+	stepBar = progress.NewStepBar("calculating checksum", 1)
 	checksum, err := sf.calculateChecksum()
 	if err != nil {
 		return err
 	}
+
 	stepBar.Add(1)
+	fullProgressBar.Add(1)
 
 	sf.header.Checksum = checksum
 
@@ -458,19 +493,23 @@ func (sf *SecretFile) Save() error {
 		return err
 	}
 
-	stepBar = progress.NewStepBar("re-writing header [2/2]")
+	stepBar = progress.NewStepBar("[2/2] re-writing header", 1)
 	// update header
 	err = sf.writeHeader()
 	if err != nil {
 		return err
 	}
-	stepBar.Add(1)
 
-	stepBar = progress.NewStepBar("syncing file")
+	stepBar.Add(1)
+	fullProgressBar.Add(1)
+
+	stepBar = progress.NewStepBar("syncing file", 1)
 	if err := sf.f.Sync(); err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
+
 	stepBar.Add(1)
+	fullProgressBar.Add(1)
 
 	// close file after writing header
 	return sf.f.Close()
@@ -491,7 +530,7 @@ func (sf *SecretFile) payloadEndOffset() uint64 {
 func (sf *SecretFile) ValidateChecksum() error {
 	want := sf.header.Checksum
 
-	stepBar := progress.NewStepBar("calculating checksum")
+	stepBar := progress.NewStepBar("calculating checksum", 1)
 	fact, err := sf.calculateChecksum()
 	if err != nil {
 		return err

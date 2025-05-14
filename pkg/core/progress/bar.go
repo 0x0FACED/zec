@@ -36,13 +36,18 @@ func NewPrettyProgressBar(description string, size int64) *progressbar.ProgressB
 	return bar
 }
 
-func NewStepBar(description string) *progressbar.ProgressBar {
+func NewStepBar(description string, max int) *progressbar.ProgressBar {
 	return progressbar.NewOptions(
-		1,
-		progressbar.OptionSetDescription(description),
+		max,
+		progressbar.OptionSetDescription("[cyan]"+description+"[reset]"),
 		progressbar.OptionShowCount(),
 		progressbar.OptionSetWidth(20),
 		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionThrottle(10*time.Millisecond),
+		progressbar.OptionSetElapsedTime(false),
+		progressbar.OptionSetPredictTime(false),
+		progressbar.OptionSetRenderBlankState(true),
+		progressbar.OptionSetWriter(os.Stdout),
 		progressbar.OptionSetTheme(progressbar.Theme{
 			Saucer:        "[green]=[reset]",
 			SaucerHead:    "[green]>[reset]",

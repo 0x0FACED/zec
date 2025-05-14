@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 
 	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
@@ -42,6 +43,16 @@ func (it *IndexTable) Decrypt(fek []byte, nonce []byte, ciphertext []byte) error
 	it.Secrets = secrets
 
 	return nil
+}
+
+func (it *IndexTable) SecretByName(name [32]byte) (*SecretMeta, error) {
+	for i := range it.Secrets {
+		if it.Secrets[i].Name == name {
+			return &it.Secrets[i], nil
+		}
+	}
+
+	return nil, errors.New("secret not found")
 }
 
 func DecryptIndexTableFromCipher(fek []byte, nonce []byte, ciphertext []byte) (*IndexTable, error) {

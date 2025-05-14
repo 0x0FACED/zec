@@ -19,6 +19,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	ColorReset        = "\033[0m"
+	ColorCyan         = "\033[36m"    // Cyan
+	ColorBlue         = "\033[34m"    // Blue
+	ColorYellow       = "\033[33m"    // Yellow
+	ColorRed          = "\033[31m"    // Red
+	ColorMagenta      = "\033[35m"    // Magenta
+	ColorBlackOnWhite = "\033[30;47m" // Black text on White BG
+	ColorWhiteOnRed   = "\033[97;41m" // White text on Red BG
+	ColorLightGray    = "\033[37m"    // Light gray
+)
+
 var logger *zlog.ZerologLogger
 var rootCmd *cobra.Command
 
@@ -38,6 +50,7 @@ func main() {
 	rootCmd.AddCommand(newCmd())
 	rootCmd.AddCommand(addCmd())
 	rootCmd.AddCommand(getCmd())
+	rootCmd.AddCommand(rmCmd())
 	rootCmd.AddCommand(listCmd())
 	rootCmd.AddCommand(headerCmd())
 
@@ -270,8 +283,60 @@ func getCmd() *cobra.Command {
 	return cmd
 }
 
+func rmCmd() *cobra.Command {
+	var filename, name string
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "rm",
+		Short: "Delete secret",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			password := promptPassword("Enter password: ")
+
+			path := filename + ".zec"
+			sf, err := file.Open(path, []byte(password))
+			if err != nil {
+				return err
+			}
+
+			if err := sf.ValidateChecksum(); err != nil {
+				return err
+			}
+
+			if force {
+				// nothing
+				// TODO: added force delete
+				logger.Info().Msg("Secret deleted, file formatted")
+			} else {
+				err := sf.DeleteSecretSoft(name)
+				if err != nil {
+					return err
+				}
+
+				logger.Info().Msg("Secret marked as deleted")
+			}
+
+			if err := sf.Save(); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&filename, "file", "", "Filename without extension (necessary)")
+	cmd.Flags().StringVar(&name, "name", "", "Secret name (necessary)")
+	cmd.Flags().BoolVar(&force, "force", false, "If force flag set - delete secret force. Soft delete by default")
+
+	cmd.MarkFlagRequired("file") //nolint:errcheck
+	cmd.MarkFlagRequired("name") //nolint:errcheck
+
+	return cmd
+}
+
 func listCmd() *cobra.Command {
 	var filename string
+	var all bool
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -295,13 +360,14 @@ func listCmd() *cobra.Command {
 				return err
 			}
 
-			renderSecretList(idxTable.Secrets)
+			renderColoredSecretList(idxTable.Secrets, all)
 
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&filename, "file", "", "Filename without extension (necessary)")
+	cmd.Flags().BoolVar(&all, "all", false, "Show all secrects (include marked as deleted)")
 
 	cmd.MarkFlagRequired("file") //nolint:errcheck
 
@@ -333,7 +399,7 @@ func headerCmd() *cobra.Command {
 				return err
 			}
 
-			renderHeader(&header)
+			renderColoredHeader(&header)
 
 			return nil
 		},
@@ -358,16 +424,29 @@ func isFile(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func renderSecretList(secrets []types.SecretMeta) {
+func renderColoredSecretList(secrets []types.SecretMeta, all bool) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.SetTitle("Secrets")
 	t.SetStyle(table.StyleRounded)
 	t.Style().Format.Header = text.FormatTitle
+	t.Style().Format.HeaderAlign = text.AlignCenter
+	t.Style().Format.RowAlign = text.AlignCenter
+	t.Style().Color.Border = text.Colors{text.FgCyan}
+	t.Style().Color.Separator = text.Colors{text.FgCyan}
+	t.Style().Color.IndexColumn = text.Colors{text.FgCyan}
+	t.Style().Color.Header = text.Colors{text.FgMagenta}
+	t.Style().Color.Row = text.Colors{text.FgGreen}
 
-	t.AppendHeader(table.Row{"Name", "Created At", "Modified At", "Offset in file", "Size", "Type", "Encrypt Mode", "Flags"})
+	t.AppendHeader(table.Row{"Name", "Added ad", "Last modified at", "Offset in file", "Size", "Type", "Encrypt Mode", "Flags"})
 
 	for _, meta := range secrets {
+		if !all {
+			if meta.Flags&types.FlagDeleted != 0 {
+				// marked as deleted
+				continue
+			}
+		}
+
 		createdTime := formatTimestamp(int64(meta.CreatedAt))
 		modifiedTime := formatTimestamp(int64(meta.ModifiedAt))
 
@@ -379,56 +458,62 @@ func renderSecretList(secrets []types.SecretMeta) {
 			readableSize(meta.Size),
 			meta.TypeString(),
 			meta.EncryptModeString(),
-			meta.Flags,
+			meta.FlagsString(),
 		})
 	}
 
 	t.Render()
 }
 
-func renderHeader(h *types.Header) {
+func renderColoredHeader(h *types.Header) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	t.Style().Format.Header = text.FormatTitle
+	t.Style().Format.HeaderAlign = text.AlignCenter
+	t.Style().Color.Border = text.Colors{text.FgCyan}
+	t.Style().Color.Separator = text.Colors{text.FgCyan}
+	t.Style().Color.Header = text.Colors{text.FgMagenta}
+	t.Style().Color.Row = text.Colors{text.FgGreen}
 
-	t.AppendRow(table.Row{"Field", "Value"})
+	t.AppendHeader(table.Row{"Header field", "Value"})
 	t.AppendSeparator()
 
 	// Main info
 	t.AppendRows([]table.Row{
-		{"Version", fmt.Sprintf("0x%02X", h.Version)},
-		{"CompleteFlag", h.CompleteFlag},
-		{"Created At", formatTimestamp(h.CreatedAt)},
-		{"Modified At", formatTimestamp(h.ModifiedAt)},
-		{"Secret Count", h.SecretCount},
-		{"Data Size", readableSize(h.DataSize)},
+		{ColorRed + "Version" + ColorReset, fmt.Sprintf("0x%02X", h.Version)},
+		{ColorRed + "Flags" + ColorReset, h.FlagsString()},
+		{ColorRed + "Created At" + ColorReset, formatTimestamp(h.CreatedAt)},
+		{ColorRed + "Last Modified At" + ColorReset, formatTimestamp(h.ModifiedAt)},
+		{ColorRed + "Secret Count" + ColorReset, h.SecretCount},
+		{ColorRed + "Data Size" + ColorReset, readableSize(h.DataSize)},
 	})
+
 	t.AppendSeparator()
 
 	// Argon2 params
 	t.AppendRows([]table.Row{
-		{"Argon Memory", readableSize(1 << h.ArgonMemoryLog2)},
-		{"Argon Iterations", h.ArgonIterations},
-		{"Argon Parallelism", h.ArgonParallelism},
-		{"Argon Salt", hex.EncodeToString(h.ArgonSalt[:])},
+		{ColorRed + "Argon Memory" + ColorReset, readableSize(1 << h.ArgonMemoryLog2)},
+		{ColorRed + "Argon Iterations" + ColorReset, h.ArgonIterations},
+		{ColorRed + "Argon Parallelism" + ColorReset, h.ArgonParallelism},
+		{ColorRed + "Argon Salt" + ColorReset, hex.EncodeToString(h.ArgonSalt[:])},
 	})
 	t.AppendSeparator()
 
 	// Crypto params
 	t.AppendRows([]table.Row{
-		{"Encryption Algo", h.EncryptionAlgo},
-		{"Owner ID", hex.EncodeToString(h.OwnerID[:])},
-		{"Verification Tag", hex.EncodeToString(h.VerificationTag[:])},
-		{"Encrypted FEK", fmt.Sprintf("%s...", hex.EncodeToString(h.EncryptedFEK[:32]))},
-		{"Checksum (SHA-256)", hex.EncodeToString(h.Checksum[:])},
+		{ColorRed + "Encryption Algo" + ColorReset, h.EncryptionAlgo},
+		{ColorRed + "Owner ID" + ColorReset, hex.EncodeToString(h.OwnerID[:])},
+		{ColorRed + "Verification Tag" + ColorReset, hex.EncodeToString(h.VerificationTag[:])},
+		{ColorRed + "Encrypted FEK" + ColorReset, fmt.Sprintf("%s...", hex.EncodeToString(h.EncryptedFEK[:32]))},
+		{ColorRed + "Checksum (SHA-256)" + ColorReset, hex.EncodeToString(h.Checksum[:])},
 	})
 	t.AppendSeparator()
 
 	// Other fields
 	t.AppendRows([]table.Row{
-		{"Index Table Offset", h.IndexTableOffset},
-		{"Index Table Nonce", hex.EncodeToString(h.IndexTableNonce[:])},
+		{ColorRed + "Index Table Offset" + ColorReset, h.IndexTableOffset},
+		{ColorRed + "Index Table Nonce" + ColorReset, hex.EncodeToString(h.IndexTableNonce[:])},
 	})
 
 	t.Render()
@@ -436,7 +521,8 @@ func renderHeader(h *types.Header) {
 
 func formatTimestamp(ts int64) string {
 	unix := time.Unix(ts, 0)
-	rfc1123zTime := unix.Format(time.RFC1123Z)
+	layout := "02 Jan 2006 15:04:05 MST"
+	rfc1123zTime := unix.Format(layout)
 	return rfc1123zTime
 }
 

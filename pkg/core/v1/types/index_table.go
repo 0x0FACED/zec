@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/0x0FACED/zec/pkg/core/v1/crypto"
 )
@@ -53,6 +54,42 @@ func (it *IndexTable) SecretByName(name [32]byte) (*SecretMeta, error) {
 	}
 
 	return nil, errors.New("secret not found")
+}
+
+func (it *IndexTable) NextSecretIdx(name [32]byte) (int, error) {
+	for i := range it.Secrets {
+		if it.Secrets[i].Name == name {
+			if i < len(it.Secrets) {
+				return i + 1, nil
+			}
+
+			return -1, errors.New("no next secrets")
+		}
+	}
+
+	return -1, errors.New("secret not found")
+}
+
+func (it *IndexTable) RemoveByName(name [32]byte) error {
+	for i, s := range it.Secrets {
+		if s.Name == name {
+			if i < len(it.Secrets) {
+				it.Secrets = slices.Delete(it.Secrets, i, i+1)
+				return nil
+			}
+
+			return errors.New("no next secrets")
+		}
+	}
+
+	return errors.New("secret not found")
+}
+
+// test func
+func (it *IndexTable) Print() {
+	for i, v := range it.Secrets {
+		fmt.Printf("Secret #%d, name %s, offset %d, size %d\n", i, v.Name, v.Offset, v.Size)
+	}
 }
 
 func DecryptIndexTableFromCipher(fek []byte, nonce []byte, ciphertext []byte) (*IndexTable, error) {

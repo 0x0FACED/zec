@@ -25,6 +25,10 @@ const (
 	ArgonParallelism = 1
 )
 
+const (
+	BlockSize = 4096 * 1024 // 4mb
+)
+
 type SecretFile struct {
 	f          *os.File
 	header     Header     // file header
@@ -198,6 +202,9 @@ func (sf *SecretFile) WriteSecret(meta SecretMeta, data io.Reader) error {
 	}
 	// encrypt
 	encrypted, err := crypto.EncryptChaCha20Poly1305(fek[:], nonce[:], dataBytes)
+	if err != nil {
+		return err
+	}
 
 	payloadEnd := sf.payloadEndOffset()
 
@@ -426,6 +433,183 @@ func (sf *SecretFile) DeleteSecretSoft(name string) error {
 	return nil
 }
 
+// DeleteSecretForce removed secret from file force.
+// Example:
+//
+//	file = [256 header, secret1, secret2, secret3, index table]
+//	We want to remove secret1.
+//	1. zeroing secret1: file = [256 header, 000000, secret2, secret3, index table]
+//	2. move secrets after secret1 TO LEFT: [256 header, secret2, secret3, ret2, secret3, index table]
+//	Note that after secret 3 might be `trash` bytes. We have to truncate file from payloadEnd:
+//	3. Truncate from payloadEnd: [256 header, secret2, secret3] WITH NO index table.
+//	Index table will be removed too.
+//	We will write index table in the Save() method after deleting.
+//
+// DeleteSecretForce uses block reading and writing so we dont load ALL secret to mem.
+func (sf *SecretFile) DeleteSecretForce(name string) error {
+	sf.mu.Lock()
+	defer sf.mu.Unlock()
+
+	// name to bytes
+	nameBytes, err := stringToBytes(name)
+	if err != nil {
+		return err
+	}
+
+	// get secret meta
+	meta, err := sf.indexTable.SecretByName(nameBytes)
+	if err != nil {
+		return err
+	}
+
+	// remember offset and size
+	delOffset := meta.Offset
+	delSize := meta.Size
+
+	// zero buf that will replace secret blocks
+	zeroBuf := make([]byte, BlockSize)
+	// remain bytes to replace
+	remain := delSize
+	// current position
+	pos := delOffset
+
+	// for there are remain secret blocks
+	for remain > 0 {
+		toWrite := BlockSize
+		if remain < uint64(BlockSize) {
+			toWrite = int(remain)
+		}
+
+		// seek ptr to secret we want delete
+		_, err := sf.f.Seek(int64(pos), io.SeekStart)
+		if err != nil {
+			return err
+		}
+
+		// write zero buf
+		nWritten, err := sf.f.Write(zeroBuf[:toWrite])
+		if err != nil {
+			return err
+		}
+		// if not equal - there is corrupted file
+		if nWritten != toWrite {
+			return errors.New("file corrupted during zeroing")
+		}
+
+		// update pos and remain
+		pos += uint64(nWritten)
+		remain -= uint64(nWritten)
+	}
+
+	// get index if next secret
+	nextIdx, err := sf.indexTable.NextSecretIdx(nameBytes)
+	if err != nil {
+		return err
+	}
+
+	// buf for reading/writing secret blocks after deleted secrets
+	readBuf := make([]byte, BlockSize)
+	writePtr := delOffset
+
+	nWritten := uint64(0)
+	for i := nextIdx; i < len(sf.indexTable.Secrets); i++ {
+		// get ptr to next secret
+		s := &sf.indexTable.Secrets[i]
+		originalOffset := s.Offset
+		originalSize := s.Size
+		remain := originalSize
+		// we read from s.Offset
+		readPos := originalOffset
+		// and write to delOffset + nWritten
+		writePos := delOffset + nWritten
+
+		// loop that rewrites secret by blocks
+		for remain > 0 {
+			// calt block size
+			toRead := BlockSize
+			if remain < uint64(BlockSize) {
+				toRead = int(remain)
+			}
+
+			// seek ptr to read next secret block
+			_, err := sf.f.Seek(int64(readPos), io.SeekStart)
+			if err != nil {
+				return err
+			}
+			// read block
+			nRead, err := sf.f.Read(readBuf[:toRead])
+			if err != nil {
+				return err
+			}
+			// cmp read bytes and toRead bytes
+			if nRead != toRead {
+				return errors.New("file corrupted during reverse read")
+			}
+
+			// seek ptr to write pos
+			_, err = sf.f.Seek(int64(writePos), io.SeekStart)
+			if err != nil {
+				return err
+			}
+
+			// write block that we read before
+			written, err := sf.f.Write(readBuf[:toRead])
+			if err != nil {
+				return err
+			}
+			// cmp
+			if written != toRead {
+				return errors.New("file corrupted during reverse write")
+			}
+			// update all written bytes
+			nWritten += uint64(written)
+			// update read pos for next block of data
+			readPos += uint64(nRead)
+			//writePos += originalOffset + (originalSize - (originalSize - remain))
+			// update writePos
+			writePos += nWritten
+			// update remain with actually read bytes
+			remain -= uint64(nRead)
+		}
+
+		// set new offset for next secret and modified at
+		s.Offset = writePtr
+		// mb will be removed
+		s.ModifiedAt = uint64(time.Now().Unix())
+		// update writePtr
+		writePtr += originalSize
+	}
+
+	// remove meta data of secret from index table
+	err = sf.indexTable.RemoveByName(nameBytes)
+	if err != nil {
+		return err
+	}
+
+	// calc end of secrets
+	// mb replace with sf.payloadEndOffset()
+	var maxEnd uint64
+	for _, s := range sf.indexTable.Secrets {
+		end := s.Offset + s.Size
+		if end > maxEnd {
+			maxEnd = end
+		}
+	}
+
+	// update header fields
+	sf.header.DataSize -= delSize
+	sf.header.ModifiedAt = time.Now().Unix()
+	sf.header.SecretCount--
+
+	// cut redundant bytes `trash` bytes in file
+	err = sf.f.Truncate(int64(maxEnd))
+	if err != nil {
+		return fmt.Errorf("truncate failed: %w", err)
+	}
+
+	return nil
+}
+
 func (sf *SecretFile) Save() error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
@@ -440,6 +624,7 @@ func (sf *SecretFile) Save() error {
 	}
 
 	sf.header.IndexTableOffset = payloadEnd
+	fmt.Println("IndexTableOffset:", sf.header.IndexTableOffset)
 	stepBar := progress.NewStepBar("re-calculating HMAC", 1)
 	sf.header.VerificationTag = crypto.HMAC(sf.masterKey, sf.header.AuthenticatedBytes())
 
@@ -454,11 +639,6 @@ func (sf *SecretFile) Save() error {
 
 	stepBar.Add(1)
 	fullProgressBar.Add(1)
-
-	_, err = sf.f.Seek(0, io.SeekStart)
-	if err != nil {
-		return err
-	}
 
 	// set up all flags
 	sf.header.Flags = FlagCompleted | FlagEncrypted
@@ -616,11 +796,17 @@ func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
 
 	// write bytes before checksum
 	_, err = hasher.Write(bufBeforeChecksum)
+	if err != nil {
+		return nil, err
+	}
 
 	emptyChecksum := make([]byte, checksumSize)
 
 	// writing arr{0,0,0,...,0} as checksum
 	_, err = hasher.Write(emptyChecksum)
+	if err != nil {
+		return nil, err
+	}
 
 	ret, err = sf.f.Seek(checksumOffset+checksumSize, io.SeekStart)
 	if err != nil {
@@ -644,6 +830,9 @@ func (sf *SecretFile) calculateHeaderChecksum() (hash.Hash, error) {
 
 	// write bytes after checksum
 	_, err = hasher.Write(bufAfterChecksum)
+	if err != nil {
+		return nil, err
+	}
 
 	return hasher, nil
 }

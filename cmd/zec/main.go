@@ -34,7 +34,7 @@ const (
 var logger *zlog.ZerologLogger
 var rootCmd *cobra.Command
 
-func init() {
+func main() {
 	rootCmd = &cobra.Command{
 		Use:   "zec",
 		Short: "zec — a safe cli tool to store your secrets",
@@ -43,9 +43,7 @@ func init() {
 	logger, _ = zlog.NewZerologLogger(zlog.LoggerConfig{
 		LogLevel: "info",
 	})
-}
 
-func main() {
 	rootCmd.AddCommand(completionCmd())
 	rootCmd.AddCommand(newCmd())
 	rootCmd.AddCommand(addCmd())
@@ -304,8 +302,11 @@ func rmCmd() *cobra.Command {
 			}
 
 			if force {
-				// nothing
-				// TODO: added force delete
+				err := sf.DeleteSecretForce(name)
+				if err != nil {
+					return err
+				}
+
 				logger.Info().Msg("Secret deleted, file formatted")
 			} else {
 				err := sf.DeleteSecretSoft(name)

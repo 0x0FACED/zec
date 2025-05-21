@@ -624,7 +624,6 @@ func (sf *SecretFile) Save() error {
 	}
 
 	sf.header.IndexTableOffset = payloadEnd
-	fmt.Println("IndexTableOffset:", sf.header.IndexTableOffset)
 	stepBar := progress.NewStepBar("re-calculating HMAC", 1)
 	sf.header.VerificationTag = crypto.HMAC(sf.masterKey, sf.header.AuthenticatedBytes())
 
@@ -747,16 +746,19 @@ func (sf *SecretFile) calculateChecksum() ([32]byte, error) {
 	for {
 		n, err := sf.f.Read(buf)
 		if n > 0 {
-			_, err = hasher.Write(buf)
+			// write only n bytes (if n < blockSize)
+			if _, werr := hasher.Write(buf[:n]); werr != nil {
+				return [32]byte{}, werr
+			}
 		}
-		if err == io.EOF || n == 0 {
+
+		if err == io.EOF {
 			break
 		}
 
 		if err != nil {
 			return [32]byte{}, err
 		}
-
 	}
 
 	var result [32]byte

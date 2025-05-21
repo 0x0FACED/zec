@@ -3,6 +3,7 @@ package crypto
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -11,6 +12,12 @@ import (
 var (
 	ErrInvalidNonceSize = errors.New("zec/crypto: invalid nonce size")
 	ErrInvalidBlock     = errors.New("zec/crypto: invalid block during decryption")
+	ErrCreateAEAD       = errors.New("zec/crypto: failed to chacha20poly1305.New() with 256-bit key")
+	ErrCreateAEADX      = errors.New("zec/crypto: failed to chacha20poly1305.NewX() with 256-bit key")
+	ErrAEADOpen         = errors.New("zec/crypto: failed to aead.Open() with provided nonce and ciphertext")
+	ErrWrite            = errors.New("zec/crypto: failed to Write()")
+	ErrRead             = errors.New("zec/crypto: failed to Read()")
+	ErrTruncatedBlock   = errors.New("zec/crypto: truncated block")
 )
 
 const ChaCha20NonceSize = chacha20poly1305.NonceSize
@@ -26,7 +33,7 @@ func EncryptChaCha20Poly1305(key []byte, nonce []byte, plaintext []byte) ([]byte
 	// NewX expects 24 byte nonce
 	aead, err := chacha20poly1305.New(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrCreateAEAD, err)
 	}
 
 	encrypted := aead.Seal(nil, nonce, plaintext, nil)
@@ -41,12 +48,12 @@ func DecryptChaCha20Poly1305(key []byte, nonce []byte, ciphertext []byte) ([]byt
 
 	aead, err := chacha20poly1305.New(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrCreateAEAD, err)
 	}
 
 	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrAEADOpen, err)
 	}
 
 	return plaintext, nil
@@ -59,7 +66,7 @@ func EncryptXChaCha20Poly1305(key, baseNonce []byte, plaintext io.Reader, cipher
 
 	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrCreateAEADX, err)
 	}
 
 	var blockIndex uint64
@@ -72,14 +79,14 @@ func EncryptXChaCha20Poly1305(key, baseNonce []byte, plaintext io.Reader, cipher
 			block := buf[:n]
 			enc := aead.Seal(nil, blockNonce, block, nil)
 			if _, err := ciphertext.Write(enc); err != nil {
-				return err
+				return fmt.Errorf("%w: %w", ErrWrite, err)
 			}
 		}
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrRead, err)
 		}
 
 		blockIndex++
@@ -95,7 +102,7 @@ func DecryptXChaCha20Poly1305(key, baseNonce []byte, ciphertext io.Reader, plain
 
 	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrCreateAEADX, err)
 	}
 
 	var blockIndex uint64
@@ -107,21 +114,21 @@ func DecryptXChaCha20Poly1305(key, baseNonce []byte, ciphertext io.Reader, plain
 			break
 		}
 		if err == io.ErrUnexpectedEOF {
-			return errors.New("truncated encrypted block")
+			return fmt.Errorf("%w: %w", ErrTruncatedBlock, err)
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrRead, err)
 		}
 
 		blockNonce := deriveBlockNonce(baseNonce, blockIndex)
 		block := buf[:n]
 		dec, err := aead.Open(nil, blockNonce, block, nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrAEADOpen, err)
 		}
 
 		if _, err := plaintext.Write(dec); err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrWrite, err)
 		}
 
 		blockIndex++

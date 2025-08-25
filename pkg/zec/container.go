@@ -58,10 +58,8 @@ func NewContainer(storage Storage, password []byte, opts ContainerOptions) (*Con
 		return nil, err
 	}
 
-	session := &Session{
-		masterKey: masterKey,
-		fek:       fek,
-	}
+	// TODO: айди как-то надо определять иначе
+	session := NewSession("new-container", masterKey, fek)
 
 	return &Container{
 		storage: storage,
@@ -87,10 +85,8 @@ func OpenContainer(storage Storage, password []byte) (*Container, error) {
 		return nil, err
 	}
 
-	session := &Session{
-		masterKey: masterKey,
-		fek:       fek,
-	}
+	// TODO: аналогично New
+	session := NewSession("opened-container", masterKey, fek)
 
 	return &Container{
 		storage: storage,
@@ -102,6 +98,10 @@ func OpenContainer(storage Storage, password []byte) (*Container, error) {
 func (c *Container) AddSecret(ctx context.Context, name string, data io.Reader, opts *SecretOptions) error {
 	if opts == nil {
 		opts = DefaultSecretOptions()
+	}
+
+	if !c.session.IsActive() {
+		return ErrSessionExpired
 	}
 
 	if exists, err := c.storage.SecretExists(name); err != nil {
@@ -132,7 +132,8 @@ func (c *Container) AddSecret(ctx context.Context, name string, data io.Reader, 
 	}
 	copy(meta.Nonce[:], nonce)
 
-	size, err := c.cipher.Encrypt(c.session.fek[:], nonce, data, writer, opts.EncryptMode)
+	fek := c.session.FEK()
+	size, err := c.cipher.Encrypt(fek[:], nonce, data, writer, opts.EncryptMode)
 	if err != nil {
 		return err
 	}
@@ -144,6 +145,10 @@ func (c *Container) AddSecret(ctx context.Context, name string, data io.Reader, 
 }
 
 func (c *Container) GetSecret(ctx context.Context, name string) (io.ReadCloser, error) {
+	if !c.session.IsActive() {
+		return nil, ErrSessionExpired
+	}
+
 	meta, err := c.storage.GetSecretMeta(name)
 	if err != nil {
 		return nil, err
@@ -159,7 +164,8 @@ func (c *Container) GetSecret(ctx context.Context, name string) (io.ReadCloser, 
 	}
 
 	nonce := meta.Nonce[:NonceSize(meta.EncryptMode)]
-	return c.cipher.Decrypt(c.session.fek[:], nonce, reader, meta.EncryptMode)
+	fek := c.session.FEK()
+	return c.cipher.Decrypt(fek[:], nonce, reader, meta.EncryptMode)
 }
 
 func (c *Container) ListSecrets() ([]SecretInfo, error) {
@@ -191,7 +197,7 @@ func (c *Container) DeleteSecret(name string, force bool) error {
 	}
 	return c.storage.DeleteSecretSoft(name)
 }
-func (c *Container) GetInfo() (*ContainerInfo, error) {
+func (c *Container) Info() (*ContainerInfo, error) {
 	header, err := c.storage.GetHeader()
 	if err != nil {
 		return nil, err
@@ -206,15 +212,34 @@ func (c *Container) GetInfo() (*ContainerInfo, error) {
 	}, nil
 }
 
-// ValidateIntegrity проверяет целостность контейнера
 func (c *Container) ValidateIntegrity() error {
 	return c.storage.ValidateChecksum()
 }
 
-// Close закрывает контейнер и сохраняет ченджи
+func (c *Container) Session() *Session {
+	return c.session
+}
+
+func (c *Container) IsSessionActive() bool {
+	return c.session != nil && c.session.IsActive()
+}
+
+func (c *Container) RefreshSession() {
+	if c.session != nil {
+		c.session.Touch()
+	}
+}
+
 func (c *Container) Close() error {
 	if err := c.storage.Save(); err != nil {
 		return err
 	}
+
+	if c.session != nil {
+		if err := c.session.Close(); err != nil {
+			return err
+		}
+	}
+
 	return c.storage.Close()
 }

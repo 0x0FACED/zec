@@ -105,14 +105,6 @@ type ContainerInfo struct {
 	ModifiedAt  int64
 }
 
-// Session данные активной сессии
-// Вообще канеш тоже такое себе, агенту не хватит этого, нужен будет менеджер сессий
-// К тому же хранить надо и fek, и МК в анклаве
-type Session struct {
-	masterKey [32]byte
-	fek       [32]byte
-}
-
 func CurrentUnixTime() int64 {
 	return time.Now().Unix()
 }

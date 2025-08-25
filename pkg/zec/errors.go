@@ -25,4 +25,8 @@ var (
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 	ErrInvalidHeader    = errors.New("invalid header")
 	ErrInvalidIndex     = errors.New("invalid index table")
+
+	ErrSessionNotFound = errors.New("session not found")
+	ErrSessionExpired  = errors.New("session expired")
+	ErrSessionInactive = errors.New("session is inactive")
 )

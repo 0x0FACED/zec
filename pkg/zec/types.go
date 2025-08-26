@@ -4,24 +4,25 @@ import "time"
 
 // SecretMeta метаданные секрета
 type SecretMeta struct {
-	Name        string
+	Name        [32]byte
 	Offset      uint64
 	Size        uint64
-	CreatedAt   int64
-	ModifiedAt  int64
+	CreatedAt   uint64
+	ModifiedAt  uint64
 	Type        SecretType
 	Flags       uint8
+	_           uint8
 	Nonce       [24]byte // максимальный размер для XChaCha20
 	EncryptMode EncryptMode
 }
 
 // SecretInfo публичная информация о секрете
 type SecretInfo struct {
-	Name       string
+	Name       [32]byte
 	Type       SecretType
 	Size       uint64
-	CreatedAt  int64
-	ModifiedAt int64
+	CreatedAt  uint64
+	ModifiedAt uint64
 }
 
 // SecretOptions опции для операций с секретами
@@ -105,6 +106,6 @@ type ContainerInfo struct {
 	ModifiedAt  int64
 }
 
-func CurrentUnixTime() int64 {
-	return time.Now().Unix()
+func CurrentUnixTime() uint64 {
+	return uint64(time.Now().Unix())
 }

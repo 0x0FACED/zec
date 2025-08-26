@@ -3,6 +3,8 @@ package zec
 import (
 	"context"
 	"io"
+
+	"github.com/0x0FACED/zec/pkg/zec/helpers"
 )
 
 // Container представляет зашифрованный контейнер ZEC
@@ -110,8 +112,12 @@ func (c *Container) AddSecret(ctx context.Context, name string, data io.Reader, 
 		return ErrSecretExists
 	}
 
+	nameBytes, err := helpers.ConvertStringNameToBytes32(name)
+	if err != nil {
+		return err
+	}
 	meta := &SecretMeta{
-		Name:        name,
+		Name:        nameBytes,
 		Type:        opts.Type,
 		EncryptMode: opts.EncryptMode,
 		CreatedAt:   CurrentUnixTime(),

@@ -190,10 +190,6 @@ func (c *Container) RefreshSession() {
 }
 
 func (c *Container) Close() error {
-	if err := c.storage.Save(); err != nil {
-		return err
-	}
-
 	if c.session != nil {
 		if err := c.session.Close(); err != nil {
 			return err

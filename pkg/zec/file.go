@@ -28,6 +28,7 @@ type FileStorage struct {
 	index   *IndexTable
 	session *Session
 	dirty   bool // нужно ли сохранение
+	closed  bool
 }
 
 func NewFileStorage(path string) (*FileStorage, error) {
@@ -368,7 +369,12 @@ func (fs *FileStorage) Save() error {
 }
 
 func (fs *FileStorage) Close() error {
-	if fs.dirty {
+	defer func() {
+		fs.closed = true
+		fs.dirty = false
+	}()
+	if fs.dirty && !fs.closed {
+		fmt.Println("Auto saving before close")
 		if err := fs.Save(); err != nil {
 			return err
 		}
@@ -425,6 +431,13 @@ func (fs *FileStorage) writeIndex() error {
 	if _, err := fs.file.Seek(int64(fs.header.IndexTableOffset), io.SeekStart); err != nil {
 		return err
 	}
+
+	if fs.session == nil {
+		return errors.New("session is not initialized")
+	}
+
+	fmt.Println(fs.session.fek == [32]byte{})
+	fmt.Println(fs.session.header.IndexTableNonce == [12]byte{})
 
 	data, err := fs.index.serialize(fs.session.fek[:], fs.header.IndexTableNonce[:])
 	if err != nil {

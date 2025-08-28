@@ -31,10 +31,19 @@ type SecretOptions struct {
 	EncryptMode EncryptMode
 }
 
+// For plain text or small files
 func DefaultSecretOptions() *SecretOptions {
 	return &SecretOptions{
 		Type:        SecretTypeText,
 		EncryptMode: EncryptModeChaCha20,
+	}
+}
+
+// For files
+func FileSecretOptions() *SecretOptions {
+	return &SecretOptions{
+		Type:        SecretTypeFile,
+		EncryptMode: EncryptModeXChaCha20,
 	}
 }
 

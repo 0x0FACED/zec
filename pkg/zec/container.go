@@ -32,7 +32,7 @@ func DefaultContainerOptions() ContainerOptions {
 	}
 }
 
-func NewContainer(storage Storage, password []byte, opts ContainerOptions) (*Container, error) {
+func NewContainer(storage Storage, session *Session, opts ContainerOptions) (*Container, error) {
 	cipher := NewChaCha20Cipher()
 
 	header, err := NewHeader(opts)
@@ -44,24 +44,12 @@ func NewContainer(storage Storage, password []byte, opts ContainerOptions) (*Con
 		return nil, err
 	}
 
-	// дерайвим МК
-	masterKey := DeriveKey(password, header.ArgonSalt, header.ArgonMemoryLog2,
-		header.ArgonIterations, header.ArgonParallelism)
-
-	fek, encryptedFEK, err := GenerateAndEncryptFEK(masterKey)
-	if err != nil {
-		return nil, err
-	}
-
-	header.EncryptedFEK = encryptedFEK
-	header.VerificationTag = CalculateHMAC(masterKey, header.AuthenticatedBytes())
+	header.EncryptedFEK = session.EncryptedFEK()
+	header.VerificationTag = CalculateHMAC(session.MasterKey(), header.AuthenticatedBytes())
 
 	if err := storage.UpdateHeader(*header); err != nil {
 		return nil, err
 	}
-
-	// TODO: айди как-то надо определять иначе
-	session := NewSession("new-container", masterKey, fek)
 
 	return &Container{
 		storage: storage,
@@ -70,25 +58,8 @@ func NewContainer(storage Storage, password []byte, opts ContainerOptions) (*Con
 	}, nil
 }
 
-func OpenContainer(storage Storage, password []byte) (*Container, error) {
+func OpenContainer(storage Storage, session *Session) (*Container, error) {
 	cipher := NewChaCha20Cipher()
-
-	header, err := storage.GetHeader()
-	if err != nil {
-		return nil, err
-	}
-
-	masterKey := DeriveKey(password, header.ArgonSalt, header.ArgonMemoryLog2,
-		header.ArgonIterations, header.ArgonParallelism)
-
-	fek, err := DecryptFEK(masterKey, header.EncryptedFEK,
-		header.VerificationTag, header.AuthenticatedBytes())
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: аналогично New
-	session := NewSession("opened-container", masterKey, fek)
 
 	return &Container{
 		storage: storage,
@@ -174,26 +145,8 @@ func (c *Container) GetSecret(ctx context.Context, name string) (io.ReadCloser, 
 	return c.cipher.Decrypt(fek[:], nonce, reader, meta.EncryptMode)
 }
 
-func (c *Container) ListSecrets() ([]SecretInfo, error) {
-	metas, err := c.storage.ListSecrets()
-	if err != nil {
-		return nil, err
-	}
-
-	var secrets []SecretInfo
-	for _, meta := range metas {
-		if meta.Flags&FlagDeleted == 0 { // только не удаленные
-			secrets = append(secrets, SecretInfo{
-				Name:       meta.Name,
-				Type:       meta.Type,
-				Size:       meta.Size,
-				CreatedAt:  meta.CreatedAt,
-				ModifiedAt: meta.ModifiedAt,
-			})
-		}
-	}
-
-	return secrets, nil
+func (c *Container) ListSecrets() []SecretMeta {
+	return c.storage.ListSecrets()
 }
 
 // DeleteSecret удаляет секрет (мягко или принудительно)

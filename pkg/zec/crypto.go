@@ -22,20 +22,20 @@ func DeriveKey(password []byte, salt [16]byte, memoryLog2 uint8, iterations uint
 	return result
 }
 
-func GenerateAndEncryptFEK(masterKey [32]byte) ([32]byte, [60]byte, error) {
+func GenerateAndEncryptFEK(masterKey [32]byte) ([60]byte, error) {
 	var fek [32]byte
 	if _, err := rand.Read(fek[:]); err != nil {
-		return [32]byte{}, [60]byte{}, err
+		return [60]byte{}, err
 	}
 
 	aead, err := chacha20poly1305.New(masterKey[:])
 	if err != nil {
-		return [32]byte{}, [60]byte{}, err
+		return [60]byte{}, err
 	}
 
 	var nonce [12]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return [32]byte{}, [60]byte{}, err
+		return [60]byte{}, err
 	}
 
 	ciphertext := aead.Seal(nil, nonce[:], fek[:], nil)
@@ -45,7 +45,28 @@ func GenerateAndEncryptFEK(masterKey [32]byte) ([32]byte, [60]byte, error) {
 	copy(encryptedFEK[0:12], nonce[:])
 	copy(encryptedFEK[12:], ciphertext)
 
-	return fek, encryptedFEK, nil
+	return encryptedFEK, nil
+}
+
+func EncryptFEK(fek, masterKey [32]byte) ([60]byte, error) {
+	aead, err := chacha20poly1305.New(masterKey[:])
+	if err != nil {
+		return [60]byte{}, err
+	}
+
+	var nonce [12]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return [60]byte{}, err
+	}
+
+	ciphertext := aead.Seal(nil, nonce[:], fek[:], nil)
+
+	// nonce(12) + ciphertext(32) + tag(16)
+	var encryptedFEK [60]byte
+	copy(encryptedFEK[0:12], nonce[:])
+	copy(encryptedFEK[12:], ciphertext)
+
+	return encryptedFEK, nil
 }
 
 func DecryptFEK(masterKey [32]byte, encryptedFEK [60]byte, verificationTag [16]byte, headerBytes []byte) ([32]byte, error) {
@@ -133,7 +154,7 @@ func encryptXChaCha20Poly1305(key, nonce []byte, src io.Reader, dst io.Writer) (
 		return 0, err
 	}
 
-	const blockSize = 64 * 1024 // 64KB блоки
+	const blockSize = 128 * 1024 // 128KB блоки (совместимость со старой версией)
 	buf := make([]byte, blockSize)
 	var totalWritten uint64
 	var blockNum uint64
@@ -194,18 +215,18 @@ func decryptXChaCha20Poly1305(key, nonce []byte, src io.Reader) (io.ReadCloser, 
 		aead:      aead,
 		src:       src,
 		baseNonce: nonce,
-		blockSize: 64*1024 + aead.Overhead(), // размер блока + overhead
+		blockSize: 128*1024 + aead.Overhead(), // размер блока + overhead (совместимость)
 	}, nil
 }
 
 // deriveBlockNonce создает nonce для конкретного блока
 func deriveBlockNonce(baseNonce []byte, blockNum uint64) []byte {
-	nonce := make([]byte, len(baseNonce))
-	copy(nonce, baseNonce)
+	nonce := make([]byte, 24)   // XChaCha20 использует 24-байтовый nonce
+	copy(nonce, baseNonce[:16]) // Копируем первые 16 байт базового nonce
 
-	// Добавляем номер блока в конец nonce
-	for i := 0; i < 8 && len(nonce)-8+i < len(nonce); i++ {
-		nonce[len(nonce)-8+i] = byte(blockNum >> (i * 8))
+	// Записываем номер блока в последние 8 байт используя little-endian
+	for i := 0; i < 8; i++ {
+		nonce[16+i] = byte(blockNum >> (i * 8))
 	}
 
 	return nonce

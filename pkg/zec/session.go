@@ -7,17 +7,32 @@ import (
 
 // Session представляет активную сессию работы с контейнером
 type Session struct {
-	mu          sync.RWMutex
-	masterKey   [32]byte
+	mu sync.RWMutex
+	// locked buffer memguard
+	masterKey [32]byte
+	// locked buffer memguard
 	fek         [32]byte
 	createdAt   time.Time
 	accessedAt  time.Time
 	isActive    bool
 	containerID string
+
+	// Заголовок файла по сути привязан к сессии.
+	// Одна сессия - один файл открытый.
+	header Header
 }
 
-// NewSession создает новую сессию с мастер-ключом и FEK
-func NewSession(containerID string, masterKey, fek [32]byte) *Session {
+// NewSession создает новую сессию
+func NewSession(containerID string, password []byte, header Header) (*Session, error) {
+	masterKey := DeriveKey(password, header.ArgonSalt, header.ArgonMemoryLog2,
+		header.ArgonIterations, header.ArgonParallelism)
+
+	fek, err := DecryptFEK(masterKey, header.EncryptedFEK,
+		header.VerificationTag, header.AuthenticatedBytes())
+	if err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	return &Session{
 		masterKey:   masterKey,
@@ -26,7 +41,8 @@ func NewSession(containerID string, masterKey, fek [32]byte) *Session {
 		accessedAt:  now,
 		isActive:    true,
 		containerID: containerID,
-	}
+		header:      header,
+	}, nil
 }
 
 func (s *Session) FEK() [32]byte {
@@ -35,6 +51,14 @@ func (s *Session) FEK() [32]byte {
 
 	s.accessedAt = time.Now()
 	return s.fek
+}
+
+func (s *Session) EncryptedFEK() [60]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.accessedAt = time.Now()
+	return s.header.EncryptedFEK
 }
 
 func (s *Session) MasterKey() [32]byte {
@@ -118,18 +142,21 @@ func NewSessionManager(timeout time.Duration) *SessionManager {
 	return sm
 }
 
-func (sm *SessionManager) CreateSession(sessionID, containerID string, masterKey, fek [32]byte) *Session {
+func (sm *SessionManager) CreateSession(sessionID, containerID string, password []byte, header Header) (*Session, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	if existingSession, exists := sm.sessions[sessionID]; exists {
-		existingSession.Close()
+		return nil, existingSession.Close()
 	}
 
-	session := NewSession(containerID, masterKey, fek)
+	session, err := NewSession(containerID, password, header)
+	if err != nil {
+		return nil, err
+	}
 	sm.sessions[sessionID] = session
 
-	return session
+	return session, nil
 }
 
 func (sm *SessionManager) GetSession(sessionID string) (*Session, bool) {

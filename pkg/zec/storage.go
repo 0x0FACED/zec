@@ -11,12 +11,13 @@ type Storage interface {
 	// Операции с заголовком
 	GetHeader() (Header, error)
 	UpdateHeader(header Header) error
+	SetSession(session *Session)
 
 	// Операции с секретами
 	SecretExists(name string) (bool, error)
 	GetSecretMeta(name string) (SecretMeta, error)
 	AddSecretMeta(meta SecretMeta) error
-	ListSecrets() ([]SecretMeta, error)
+	ListSecrets() []SecretMeta
 	DeleteSecretSoft(name string) error
 	DeleteSecretHard(name string) error
 

@@ -54,16 +54,16 @@ func OpenFileStorage(path string) (*FileStorage, error) {
 	}
 
 	if err := storage.readHeader(); err != nil {
-		file.Close()
+		file.Close() //nolint:errcheck
 		return nil, err
 	}
 
-	if storage.header.SecretCount > 0 {
-		if err := storage.readIndex(); err != nil {
-			file.Close()
-			return nil, err
-		}
-	}
+	// if storage.header.SecretCount > 0 {
+	// 	if err := storage.readIndex(); err != nil {
+	// 		file.Close()
+	// 		return nil, err
+	// 	}
+	// }
 
 	return storage, nil
 }
@@ -84,12 +84,45 @@ func (fs *FileStorage) UpdateHeader(header Header) error {
 	return nil
 }
 
-func (fs *FileStorage) ListSecrets() ([]SecretMeta, error) {
-	var secrets []SecretMeta
-	for _, meta := range fs.index.secrets {
-		secrets = append(secrets, meta)
+func (fs *FileStorage) SetSession(session *Session) {
+	fs.session = session
+}
+
+func (fs *FileStorage) LoadIndex() error {
+	return fs.readIndex()
+}
+
+func (fs *FileStorage) SecretExists(name string) (bool, error) {
+	nameBytes, err := helpers.ConvertStringNameToBytes32(name)
+	if err != nil {
+		return false, err
 	}
-	return secrets, nil
+	return fs.ExistsSecret(nameBytes), nil
+}
+
+func (fs *FileStorage) GetSecretMeta(name string) (SecretMeta, error) {
+	nameBytes, err := helpers.ConvertStringNameToBytes32(name)
+	if err != nil {
+		return SecretMeta{}, err
+	}
+	meta, err := fs.index.SecretByName(nameBytes)
+	if err != nil {
+		return SecretMeta{}, err
+	}
+	return *meta, nil
+}
+
+func (fs *FileStorage) AddSecretMeta(meta SecretMeta) error {
+	fs.index.secrets = append(fs.index.secrets, meta)
+	fs.header.SecretCount++
+	fs.header.DataSize += meta.Size
+	fs.header.ModifiedAt = time.Now().Unix()
+	fs.dirty = true
+	return nil
+}
+
+func (fs *FileStorage) ListSecrets() []SecretMeta {
+	return fs.index.secrets
 }
 
 func (fs *FileStorage) DeleteSecretSoft(name string) error {
@@ -383,8 +416,9 @@ func (fs *FileStorage) readIndex() error {
 		return err
 	}
 
-	// нормально реализовать, потому что здесь херня, надо как-то сюда перетащить реализацию
-	return fs.index.deserialize(encryptedData)
+	fmt.Println("Temp log")
+
+	return fs.index.deserialize(fs.session.fek[:], fs.header.IndexTableNonce[:], encryptedData)
 }
 
 func (fs *FileStorage) writeIndex() error {
@@ -392,8 +426,7 @@ func (fs *FileStorage) writeIndex() error {
 		return err
 	}
 
-	// TODO: Перетащить аналогчно реализацию
-	data, err := fs.index.serialize(fs.session.fek[:], fs.session.masterKey[:])
+	data, err := fs.index.serialize(fs.session.fek[:], fs.header.IndexTableNonce[:])
 	if err != nil {
 		return err
 	}
@@ -593,7 +626,6 @@ func (it *IndexTable) RemoveByName(name [32]byte) error {
 }
 
 func (it *IndexTable) serialize(fek []byte, nonce []byte) ([]byte, error) {
-	// TODO: Вот это переписать надо из индекс тейбла
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
 
@@ -613,21 +645,28 @@ func (it *IndexTable) serialize(fek []byte, nonce []byte) ([]byte, error) {
 	return dst.Bytes(), nil
 }
 
-func (it *IndexTable) deserialize(data []byte) error {
-	// TODO: Вот это переписать надо из индекс тейбла
-	buf := bytes.NewBuffer(data)
-	decoder := gob.NewDecoder(buf)
+func (it *IndexTable) deserialize(fek []byte, nonce []byte, data []byte) error {
+	cipher := NewChaCha20Cipher()
+
+	readCloser, err := cipher.Decrypt(fek, nonce, bytes.NewReader(data), EncryptModeChaCha20)
+	if err != nil {
+		return err
+	}
+	defer readCloser.Close()
+
+	plaintext, err := io.ReadAll(readCloser)
+	if err != nil {
+		return err
+	}
+
+	decoder := gob.NewDecoder(bytes.NewReader(plaintext))
 
 	var secrets []SecretMeta
 	if err := decoder.Decode(&secrets); err != nil {
 		return err
 	}
 
-	// Загружаем в map
-	it.secrets = make([]SecretMeta, len(secrets))
-	for i, meta := range secrets {
-		it.secrets[i] = meta
-	}
+	it.secrets = secrets
 
 	return nil
 }

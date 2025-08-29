@@ -2,6 +2,7 @@ package zec
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/0x0FACED/zec/pkg/zec/helpers"
@@ -191,10 +192,13 @@ func (c *Container) RefreshSession() {
 
 func (c *Container) Close() error {
 	if c.session != nil {
-		if err := c.session.Close(); err != nil {
+		if c.storage == nil {
+			return fmt.Errorf("warning: storage is nil while closing container")
+		}
+		if err := c.storage.Close(); err != nil {
 			return err
 		}
 	}
 
-	return c.storage.Close()
+	return nil
 }

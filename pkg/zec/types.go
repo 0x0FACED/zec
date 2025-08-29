@@ -16,15 +16,6 @@ type SecretMeta struct {
 	EncryptMode EncryptMode
 }
 
-// SecretInfo публичная информация о секрете
-type SecretInfo struct {
-	Name       [32]byte
-	Type       SecretType
-	Size       uint64
-	CreatedAt  uint64
-	ModifiedAt uint64
-}
-
 // SecretOptions опции для операций с секретами
 type SecretOptions struct {
 	Type        SecretType
@@ -99,8 +90,8 @@ func NonceSize(mode EncryptMode) int {
 
 // Флаги состояния
 const (
-	FlagUndefined       = 0 // undefined flag set in the start of writing
-	FlagCompleted uint8 = 1 << iota
+	FlagUndefined uint8 = 0 // undefined flag set in the start of writing
+	FlagCompleted uint8 = 1 << (iota - 1)
 	FlagEncrypted
 	FlagCompressed
 	FlagDeleted

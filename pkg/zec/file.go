@@ -351,12 +351,26 @@ func (fs *FileStorage) Save() error {
 
 	dataEnd := fs.calculateDataEnd()
 	fs.header.IndexTableOffset = dataEnd
+	fs.header.VerificationTag = CalculateHMAC(fs.session.masterKey, fs.header.AuthenticatedBytes())
 
 	if err := fs.writeIndex(); err != nil {
 		return err
 	}
 
-	if err := fs.calculateAndWriteChecksum(); err != nil {
+	fs.header.Flags = FlagCompleted | FlagEncrypted
+
+	if err := fs.writeHeader(); err != nil {
+		return err
+	}
+
+	checksum, err := fs.calculateChecksum()
+	if err != nil {
+		return err
+	}
+
+	fs.header.Checksum = checksum
+
+	if err := fs.writeHeader(); err != nil {
 		return err
 	}
 
@@ -501,21 +515,6 @@ func (fs *FileStorage) calculateChecksum() ([32]byte, error) {
 	var result [32]byte
 	copy(result[:], hasher.Sum(nil))
 	return result, nil
-}
-
-func (fs *FileStorage) calculateAndWriteChecksum() error {
-	fs.header.Checksum = [32]byte{}
-	if err := fs.writeHeader(); err != nil {
-		return err
-	}
-
-	checksum, err := fs.calculateChecksum()
-	if err != nil {
-		return err
-	}
-
-	fs.header.Checksum = checksum
-	return fs.writeHeader()
 }
 
 func (sf *FileStorage) calculateHeaderChecksum() (hash.Hash, error) {

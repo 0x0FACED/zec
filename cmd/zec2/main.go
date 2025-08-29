@@ -185,7 +185,6 @@ func addCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer storage.Close()
 
 			contID := uuid.NewV4()
 
@@ -198,7 +197,12 @@ func addCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer session.Close()
+
+			storage.SetSession(session)
+
+			if err := storage.LoadIndex(); err != nil {
+				return err
+			}
 
 			container, err := zec.OpenContainer(storage, session)
 			if err != nil {
@@ -442,30 +446,15 @@ func listCmd() *cobra.Command {
 				return err
 			}
 
-			secrets := container.ListSecrets()
-
-			// Convert SecretInfo to SecretMeta format for display compatibility
+			// Get secrets directly from storage to preserve all fields
 			var metas []zec.SecretMeta
-			for _, secret := range secrets {
-				meta := zec.SecretMeta{
-					Name:       secret.Name,
-					Type:       secret.Type,
-					Size:       secret.Size,
-					CreatedAt:  secret.CreatedAt,
-					ModifiedAt: secret.ModifiedAt,
-					// Other fields will be zero/default
-				}
-				metas = append(metas, meta)
-			}
-
-			// If all flag is set, we need to get the full list including deleted ones
 			if all {
-				storage, err := zec.OpenFileStorage(path)
-				if err != nil {
-					return err
-				}
-				fullMetas := storage.ListSecrets()
-				metas = fullMetas
+				// If all flag is set, get full list including deleted ones from storage
+				metas = storage.ListSecrets()
+			} else {
+				// Get only non-deleted secrets from container
+				secrets := container.ListSecrets()
+				metas = secrets
 			}
 
 			renderColoredSecretList(metas, all)

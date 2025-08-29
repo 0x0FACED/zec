@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"io"
 
 	"golang.org/x/crypto/argon2"
@@ -220,15 +221,10 @@ func decryptXChaCha20Poly1305(key, nonce []byte, src io.Reader) (io.ReadCloser, 
 }
 
 // deriveBlockNonce создает nonce для конкретного блока
-func deriveBlockNonce(baseNonce []byte, blockNum uint64) []byte {
-	nonce := make([]byte, 24)   // XChaCha20 использует 24-байтовый nonce
-	copy(nonce, baseNonce[:16]) // Копируем первые 16 байт базового nonce
-
-	// Записываем номер блока в последние 8 байт используя little-endian
-	for i := 0; i < 8; i++ {
-		nonce[16+i] = byte(blockNum >> (i * 8))
-	}
-
+func deriveBlockNonce(baseNonce []byte, blockIndex uint64) []byte {
+	nonce := make([]byte, 24)
+	copy(nonce, baseNonce[:16])
+	binary.LittleEndian.PutUint64(nonce[16:], blockIndex)
 	return nonce
 }
 
@@ -254,8 +250,14 @@ func (sd *streamDecryptor) Read(p []byte) (n int, err error) {
 	}
 
 	blockBytes, err := sd.src.Read(sd.buf)
-	if blockBytes == 0 {
+	if err == io.EOF && blockBytes == 0 {
+		return 0, io.EOF
+	}
+	if err != nil && err != io.EOF {
 		return 0, err
+	}
+	if blockBytes == 0 {
+		return 0, io.EOF
 	}
 
 	blockNonce := deriveBlockNonce(sd.baseNonce, sd.blockNum)
@@ -271,7 +273,7 @@ func (sd *streamDecryptor) Read(p []byte) (n int, err error) {
 		sd.remaining = decrypted[n:]
 	}
 
-	return n, nil
+	return n, err // возвращаем ошибку (может быть io.EOF), чтобы вызывающий код знал о конце
 }
 
 func (sd *streamDecryptor) Close() error {

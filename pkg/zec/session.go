@@ -1,6 +1,7 @@
 package zec
 
 import (
+	"crypto/rand"
 	"sync"
 	"time"
 )
@@ -22,7 +23,7 @@ type Session struct {
 	header Header
 }
 
-// NewSession создает новую сессию
+// NewSession создает новую сессию из существующего контейнера (расшифровывает FEK)
 func NewSession(containerID string, password []byte, header Header) (*Session, error) {
 	masterKey := DeriveKey(password, header.ArgonSalt, header.ArgonMemoryLog2,
 		header.ArgonIterations, header.ArgonParallelism)
@@ -43,6 +44,40 @@ func NewSession(containerID string, password []byte, header Header) (*Session, e
 		containerID: containerID,
 		header:      header,
 	}, nil
+}
+
+// NewSessionForNewContainer создает новую сессию для нового контейнера (генерирует FEK)
+func NewSessionForNewContainer(containerID string, password []byte, header Header) (*Session, error) {
+	masterKey := DeriveKey(password, header.ArgonSalt, header.ArgonMemoryLog2,
+		header.ArgonIterations, header.ArgonParallelism)
+
+	var fek [32]byte
+	if _, err := rand.Read(fek[:]); err != nil {
+		return nil, err
+	}
+
+	encryptedFEK, err := EncryptFEK(fek, masterKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// это в целом просто ужасное решение - изменение хэдера
+	// в создании сессии бл. Ну ужас канеш, я это точно перепишу,
+	// для удобства пока что так.
+	header.EncryptedFEK = encryptedFEK
+
+	now := time.Now()
+	session := &Session{
+		masterKey:   masterKey,
+		fek:         fek,
+		createdAt:   now,
+		accessedAt:  now,
+		isActive:    true,
+		containerID: containerID,
+		header:      header,
+	}
+
+	return session, nil
 }
 
 func (s *Session) FEK() [32]byte {
@@ -115,6 +150,13 @@ func (s *Session) Touch() {
 	defer s.mu.Unlock()
 
 	s.accessedAt = time.Now()
+}
+
+func (s *Session) SetHeader(header Header) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.header = header
 }
 
 type SessionInfo struct {

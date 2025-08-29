@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/0x0FACED/uuid"
 	"github.com/0x0FACED/zec/pkg/zec/helpers"
 )
 
@@ -23,7 +24,7 @@ type ContainerOptions struct {
 	BlockSize        int64
 }
 
-// DefaultContainerOptions возрвщает дефолтные опции
+// DefaultContainerOptions возвращает дефолтные опции
 func DefaultContainerOptions() ContainerOptions {
 	return ContainerOptions{
 		ArgonMemory:      1 << 18, // 256KB
@@ -31,6 +32,84 @@ func DefaultContainerOptions() ContainerOptions {
 		ArgonParallelism: 1,
 		BlockSize:        4 * 1024 * 1024, // 4MB
 	}
+}
+
+// ContainerManager - высокоуровневая абстракция для управления контейнерами
+type ContainerManager struct {
+	options ContainerOptions
+}
+
+// NewContainerManager создает новый менеджер контейнеров
+func NewContainerManager(opts ContainerOptions) *ContainerManager {
+	return &ContainerManager{options: opts}
+}
+
+// CreateNew создает новый контейнер с файлом
+func (cm *ContainerManager) CreateNew(path, password string) (*Container, error) {
+	storage, err := NewFileStorage(path, cm.options)
+	if err != nil {
+		return nil, err
+	}
+
+	header, err := NewHeader(cm.options)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := storage.Initialize(*header); err != nil {
+		return nil, err
+	}
+
+	containerID := uuid.NewV4().String()
+	session, err := NewSessionForNewContainer(containerID, []byte(password), *header)
+	if err != nil {
+		return nil, err
+	}
+
+	// он уже выставляется при создании сессии
+	// опять же ужасный код, плохие решения
+	header.EncryptedFEK = session.EncryptedFEK()
+	header.VerificationTag = CalculateHMAC(session.MasterKey(), header.AuthenticatedBytes())
+
+	if err := storage.UpdateHeader(*header); err != nil {
+		return nil, err
+	}
+
+	session.SetHeader(*header)
+	storage.SetSession(session)
+
+	return &Container{
+		storage: storage,
+		cipher:  NewChaCha20Cipher(),
+		session: session,
+	}, nil
+}
+
+// OpenExisting открывает существующий контейнер
+func (cm *ContainerManager) OpenExisting(path, password string) (*Container, error) {
+	storage, err := OpenFileStorage(path)
+	if err != nil {
+		return nil, err
+	}
+
+	header := storage.GetHeader()
+
+	containerID := uuid.NewV4().String()
+	session, err := NewSession(containerID, []byte(password), header)
+	if err != nil {
+		return nil, err
+	}
+
+	storage.SetSession(session)
+	if err := storage.LoadIndex(); err != nil {
+		return nil, err
+	}
+
+	return &Container{
+		storage: storage,
+		cipher:  NewChaCha20Cipher(),
+		session: session,
+	}, nil
 }
 
 func NewContainer(storage Storage, session *Session, opts ContainerOptions) (*Container, error) {
@@ -158,10 +237,7 @@ func (c *Container) DeleteSecret(name string, force bool) error {
 	return c.storage.DeleteSecretSoft(name)
 }
 func (c *Container) Info() (*ContainerInfo, error) {
-	header, err := c.storage.GetHeader()
-	if err != nil {
-		return nil, err
-	}
+	header := c.storage.GetHeader()
 
 	return &ContainerInfo{
 		Version:     header.Version,
@@ -178,6 +254,10 @@ func (c *Container) ValidateIntegrity() error {
 
 func (c *Container) Session() *Session {
 	return c.session
+}
+
+func (c *Container) Header() Header {
+	return c.storage.GetHeader()
 }
 
 func (c *Container) IsSessionActive() bool {

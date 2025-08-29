@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/0x0FACED/uuid"
 	"github.com/0x0FACED/zec/pkg/zec"
 	"github.com/0x0FACED/zec/pkg/zec/helpers"
 	"github.com/0x0FACED/zlog"
@@ -126,39 +125,12 @@ func newCmd() *cobra.Command {
 			password := promptPassword("Enter password for file: ")
 			path := file + ".zec"
 
-			storage, err := zec.OpenFileStorage(path)
-			if err != nil {
-				return err
-			}
-			defer storage.Close()
-
-			contID := uuid.NewV4()
-
-			header, err := storage.GetHeader()
-			if err != nil {
-				return err
-			}
-
-			session, err := zec.NewSession(contID.String(), []byte(password), header)
-			if err != nil {
-				return err
-			}
-			defer session.Close()
-
-			container, err := zec.NewContainer(storage, session, zec.DefaultContainerOptions())
+			manager := zec.NewContainerManager(zec.DefaultContainerOptions())
+			container, err := manager.CreateNew(path, password)
 			if err != nil {
 				return err
 			}
 			defer container.Close()
-
-			err = container.AddSecret(context.Background(), "test", bytes.NewBufferString("test"), zec.DefaultSecretOptions())
-			if err != nil {
-				return err
-			}
-
-			if err := container.ValidateIntegrity(); err != nil {
-				return err
-			}
 
 			logger.Info().Str("file", path).Msg("File successfully created")
 			return nil
@@ -181,30 +153,8 @@ func addCmd() *cobra.Command {
 			password := promptPassword("Enter password: ")
 			path := filename + ".zec"
 
-			storage, err := zec.OpenFileStorage(path)
-			if err != nil {
-				return err
-			}
-
-			contID := uuid.NewV4()
-
-			header, err := storage.GetHeader()
-			if err != nil {
-				return err
-			}
-
-			session, err := zec.NewSession(contID.String(), []byte(password), header)
-			if err != nil {
-				return err
-			}
-
-			storage.SetSession(session)
-
-			if err := storage.LoadIndex(); err != nil {
-				return err
-			}
-
-			container, err := zec.OpenContainer(storage, session)
+			manager := zec.NewContainerManager(zec.DefaultContainerOptions())
+			container, err := manager.OpenExisting(path, password)
 			if err != nil {
 				return err
 			}
@@ -261,26 +211,8 @@ func getCmd() *cobra.Command {
 			password := promptPassword("Enter password: ")
 			path := filename + ".zec"
 
-			storage, err := zec.OpenFileStorage(path)
-			if err != nil {
-				return err
-			}
-			defer storage.Close()
-
-			contID := uuid.NewV4()
-
-			header, err := storage.GetHeader()
-			if err != nil {
-				return err
-			}
-
-			session, err := zec.NewSession(contID.String(), []byte(password), header)
-			if err != nil {
-				return err
-			}
-			defer session.Close()
-
-			container, err := zec.OpenContainer(storage, session)
+			manager := zec.NewContainerManager(zec.DefaultContainerOptions())
+			container, err := manager.OpenExisting(path, password)
 			if err != nil {
 				return err
 			}
@@ -343,26 +275,8 @@ func rmCmd() *cobra.Command {
 			password := promptPassword("Enter password: ")
 			path := filename + ".zec"
 
-			storage, err := zec.OpenFileStorage(path)
-			if err != nil {
-				return err
-			}
-			defer storage.Close()
-
-			contID := uuid.NewV4()
-
-			header, err := storage.GetHeader()
-			if err != nil {
-				return err
-			}
-
-			session, err := zec.NewSession(contID.String(), []byte(password), header)
-			if err != nil {
-				return err
-			}
-			defer session.Close()
-
-			container, err := zec.OpenContainer(storage, session)
+			manager := zec.NewContainerManager(zec.DefaultContainerOptions())
+			container, err := manager.OpenExisting(path, password)
 			if err != nil {
 				return err
 			}
@@ -408,35 +322,8 @@ func listCmd() *cobra.Command {
 			password := promptPassword("Enter password: ")
 			path := filename + ".zec"
 
-			// Логика создания сессий должна в будущем быть вынесена
-			// в агента. А здесь будет запрос через сокеты на создание
-			// сессии и получение МК и FEK.
-			storage, err := zec.OpenFileStorage(path)
-			if err != nil {
-				return err
-			}
-			defer storage.Close()
-
-			contID := uuid.NewV4()
-
-			header, err := storage.GetHeader()
-			if err != nil {
-				return err
-			}
-
-			session, err := zec.NewSession(contID.String(), []byte(password), header)
-			if err != nil {
-				return err
-			}
-			defer session.Close()
-
-			storage.SetSession(session)
-
-			if err := storage.LoadIndex(); err != nil {
-				return err
-			}
-
-			container, err := zec.OpenContainer(storage, session)
+			manager := zec.NewContainerManager(zec.DefaultContainerOptions())
+			container, err := manager.OpenExisting(path, password)
 			if err != nil {
 				return err
 			}
@@ -450,7 +337,7 @@ func listCmd() *cobra.Command {
 			var metas []zec.SecretMeta
 			if all {
 				// If all flag is set, get full list including deleted ones from storage
-				metas = storage.ListSecrets()
+				metas = container.ListSecrets()
 			} else {
 				// Get only non-deleted secrets from container
 				secrets := container.ListSecrets()
@@ -481,26 +368,8 @@ func headerCmd() *cobra.Command {
 			password := promptPassword("Enter password: ")
 			path := filename + ".zec"
 
-			storage, err := zec.OpenFileStorage(path)
-			if err != nil {
-				return err
-			}
-			defer storage.Close()
-
-			contID := uuid.NewV4()
-
-			header, err := storage.GetHeader()
-			if err != nil {
-				return err
-			}
-
-			session, err := zec.NewSession(contID.String(), []byte(password), header)
-			if err != nil {
-				return err
-			}
-			defer session.Close()
-
-			container, err := zec.OpenContainer(storage, session)
+			manager := zec.NewContainerManager(zec.DefaultContainerOptions())
+			container, err := manager.OpenExisting(path, password)
 			if err != nil {
 				return err
 			}
@@ -510,10 +379,7 @@ func headerCmd() *cobra.Command {
 				return err
 			}
 
-			header, err = storage.GetHeader()
-			if err != nil {
-				return err
-			}
+			header := container.Header()
 
 			renderColoredHeader(&header)
 

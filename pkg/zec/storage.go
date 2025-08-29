@@ -9,7 +9,7 @@ type Storage interface {
 	Initialize(header Header) error
 
 	// Операции с заголовком
-	GetHeader() (Header, error)
+	GetHeader() Header
 	UpdateHeader(header Header) error
 	SetSession(session *Session)
 

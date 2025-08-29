@@ -31,7 +31,7 @@ type FileStorage struct {
 	closed  bool
 }
 
-func NewFileStorage(path string) (*FileStorage, error) {
+func NewFileStorage(path string, opts ContainerOptions) (*FileStorage, error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return nil, err
@@ -75,8 +75,8 @@ func (fs *FileStorage) Initialize(header Header) error {
 	return fs.writeHeader()
 }
 
-func (fs *FileStorage) GetHeader() (Header, error) {
-	return fs.header, nil
+func (fs *FileStorage) GetHeader() Header {
+	return fs.header
 }
 
 func (fs *FileStorage) UpdateHeader(header Header) error {
@@ -351,7 +351,7 @@ func (fs *FileStorage) Save() error {
 
 	dataEnd := fs.calculateDataEnd()
 	fs.header.IndexTableOffset = dataEnd
-	fs.header.VerificationTag = CalculateHMAC(fs.session.masterKey, fs.header.AuthenticatedBytes())
+	fs.header.VerificationTag = CalculateHMAC(fs.session.MasterKey(), fs.header.AuthenticatedBytes())
 
 	if err := fs.writeIndex(); err != nil {
 		return err
@@ -436,9 +436,8 @@ func (fs *FileStorage) readIndex() error {
 		return err
 	}
 
-	fmt.Println("Temp log")
-
-	return fs.index.deserialize(fs.session.fek[:], fs.header.IndexTableNonce[:], encryptedData)
+	fek := fs.session.FEK()
+	return fs.index.deserialize(fek[:], fs.header.IndexTableNonce[:], encryptedData)
 }
 
 func (fs *FileStorage) writeIndex() error {
@@ -450,10 +449,8 @@ func (fs *FileStorage) writeIndex() error {
 		return errors.New("session is not initialized")
 	}
 
-	fmt.Println(fs.session.fek == [32]byte{})
-	fmt.Println(fs.session.header.IndexTableNonce == [12]byte{})
-
-	data, err := fs.index.serialize(fs.session.fek[:], fs.header.IndexTableNonce[:])
+	fek := fs.session.FEK()
+	data, err := fs.index.serialize(fek[:], fs.header.IndexTableNonce[:])
 	if err != nil {
 		return err
 	}
@@ -598,7 +595,7 @@ func (it IndexTable) Secrets() []SecretMeta {
 	return it.secrets
 }
 
-func (it IndexTable) SecretByName(name [32]byte) (*SecretMeta, error) {
+func (it *IndexTable) SecretByName(name [32]byte) (*SecretMeta, error) {
 	for i := range it.secrets {
 		if it.secrets[i].Name == name {
 			return &it.secrets[i], nil

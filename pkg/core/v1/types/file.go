@@ -614,8 +614,6 @@ func (sf *SecretFile) Save() error {
 	sf.mu.Lock()
 	defer sf.mu.Unlock()
 
-	fullProgressBar := progress.NewStepBar("saving file", 6)
-
 	payloadEnd := sf.payloadEndOffset()
 
 	// write index table
@@ -624,20 +622,12 @@ func (sf *SecretFile) Save() error {
 	}
 
 	sf.header.IndexTableOffset = payloadEnd
-	stepBar := progress.NewStepBar("re-calculating HMAC", 1)
 	sf.header.VerificationTag = crypto.HMAC(sf.masterKey, sf.header.AuthenticatedBytes())
 
-	stepBar.Add(1)
-	fullProgressBar.Add(1)
-
-	stepBar = progress.NewStepBar("re-writing index table", 1)
 	err := sf.writeIndexTable()
 	if err != nil {
 		return err
 	}
-
-	stepBar.Add(1)
-	fullProgressBar.Add(1)
 
 	// set up all flags
 	sf.header.Flags = FlagCompleted | FlagEncrypted
@@ -647,23 +637,15 @@ func (sf *SecretFile) Save() error {
 		return err
 	}
 
-	stepBar = progress.NewStepBar("[1/2] re-writing header", 1)
 	err = sf.writeHeader()
 	if err != nil {
 		return err
 	}
 
-	stepBar.Add(1)
-	fullProgressBar.Add(1)
-
-	stepBar = progress.NewStepBar("calculating checksum", 1)
 	checksum, err := sf.calculateChecksum()
 	if err != nil {
 		return err
 	}
-
-	stepBar.Add(1)
-	fullProgressBar.Add(1)
 
 	sf.header.Checksum = checksum
 
@@ -672,23 +654,15 @@ func (sf *SecretFile) Save() error {
 		return err
 	}
 
-	stepBar = progress.NewStepBar("[2/2] re-writing header", 1)
 	// update header
 	err = sf.writeHeader()
 	if err != nil {
 		return err
 	}
 
-	stepBar.Add(1)
-	fullProgressBar.Add(1)
-
-	stepBar = progress.NewStepBar("syncing file", 1)
 	if err := sf.f.Sync(); err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
-
-	stepBar.Add(1)
-	fullProgressBar.Add(1)
 
 	// close file after writing header
 	return sf.f.Close()

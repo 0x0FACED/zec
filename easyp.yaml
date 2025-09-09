@@ -1,0 +1,18 @@
+version: v1
+
+lint:
+  use:
+    - DEFAULT
+generate:
+  inputs:
+    - directory: ./api
+  plugins:
+    - name: go
+      out: ./pkg/gen
+      opts:
+        paths: source_relative
+    - name: go-grpc
+      out: ./pkg/gen
+      opts:
+        paths: source_relative
+        require_unimplemented_servers: false

@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package zec.agent.v1;
+option go_package = "github.com/0x0FACED/zec/pkg/gen";
+
+service ZecAgent {
+    rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+    rpc GetFEK(GetFEKRequest) returns (GetFEKResponse);
+    rpc RefreshSession(RefreshSessionRequest) returns (RefreshSessionResponse);
+    rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+    rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+}
+
+message Meta {
+    string container_path = 1;
+    string user_id = 2;
+    string mac = 3;
+}
+
+message CreateSessionRequest {
+    Meta meta = 1;
+    bytes password = 2;
+    int32 ttl_seconds = 3;
+}
+
+message CreateSessionResponse {
+    bool success = 1;
+    int64 expires_at = 2;
+    AgentError error = 3;
+}
+
+message GetFEKRequest {
+    Meta meta = 1;
+}
+
+message GetFEKResponse {
+    bool success = 1;
+    bytes fek = 2;  // 32 bytes
+    bool found = 3;
+    AgentError error = 4;
+}
+
+message RefreshSessionRequest {
+    Meta meta = 1;
+    int32 extend_ttl_seconds = 2;
+}
+
+message RefreshSessionResponse {
+    bool success = 1;
+    int64 new_expires_at = 2;
+    AgentError error = 3;
+}
+
+message CloseSessionRequest {
+    Meta meta = 1;
+}
+
+message CloseSessionResponse {
+    bool success = 1;
+    AgentError error = 2;
+}
+
+message ListSessionsRequest {
+    Meta meta = 1;
+}
+
+message ListSessionsResponse {
+    repeated SessionInfo sessions = 1;
+    AgentError error = 2;
+}
+
+message SessionInfo {
+    string container_path = 1;
+    int64 created_at = 2;
+    int64 expires_at = 3;
+    int64 last_access_at = 4;
+}
+
+message AgentError {
+    string message = 1;
+}

@@ -4,40 +4,30 @@ import (
 	"context"
 	"net"
 
+	"github.com/0x0FACED/zec/internal/agent/dto"
+	"github.com/0x0FACED/zec/internal/agent/service"
 	gen "github.com/0x0FACED/zec/pkg/gen/api"
 	"google.golang.org/grpc"
 )
 
 // gRPC транспорт
 type GRPCTransport struct {
-	handler Handler
-	server  *grpc.Server
-	address string
+	server *grpc.Server
 }
 
-func NewGRPCTransport(handler Handler, address string) *GRPCTransport {
+func NewGRPCTransport(server *grpc.Server) *GRPCTransport {
 	return &GRPCTransport{
-		handler: handler,
-		address: address,
+		server: server,
 	}
 }
 
-func (gt *GRPCTransport) Start(ctx context.Context) error {
-	lis, err := net.Listen("tcp", gt.address)
-	if err != nil {
-		return err
-	}
-
-	gt.server = grpc.NewServer()
-	grpcHandler := &grpcServiceHandler{handler: gt.handler}
-	gen.RegisterZecAgentServer(gt.server, grpcHandler)
-
+func (gt *GRPCTransport) Start(ctx context.Context, l net.Listener) error {
 	go func() {
 		<-ctx.Done()
-		gt.server.GracefulStop()
+		_ = gt.Stop()
 	}()
 
-	return gt.server.Serve(lis)
+	return gt.server.Serve(l)
 }
 
 func (gt *GRPCTransport) Stop() error {
@@ -50,13 +40,12 @@ func (gt *GRPCTransport) Stop() error {
 // gRPC обработчик с конвертацией
 type grpcServiceHandler struct {
 	gen.UnimplementedZecAgentServer
-	handler Handler
+	service *service.AgentService
 }
 
 func (gh *grpcServiceHandler) CreateSession(ctx context.Context, req *gen.CreateSessionRequest) (*gen.CreateSessionResponse, error) {
-	// Конвертация из gRPC типов в доменные
-	domainReq := &CreateSessionRequest{
-		Meta: Meta{
+	domainReq := &dto.CreateSessionRequest{
+		Meta: dto.Meta{
 			ContainerPath: req.Meta.ContainerPath,
 			UserID:        req.Meta.UserId,
 			MAC:           req.Meta.Mac,
@@ -65,7 +54,7 @@ func (gh *grpcServiceHandler) CreateSession(ctx context.Context, req *gen.Create
 		TTLSeconds: req.TtlSeconds,
 	}
 
-	resp, err := gh.handler.CreateSession(ctx, domainReq)
+	resp, err := gh.service.CreateSession(ctx, domainReq)
 	if err != nil {
 		return nil, err
 	}
@@ -83,15 +72,15 @@ func (gh *grpcServiceHandler) CreateSession(ctx context.Context, req *gen.Create
 }
 
 func (gh *grpcServiceHandler) GetFEK(ctx context.Context, req *gen.GetFEKRequest) (*gen.GetFEKResponse, error) {
-	domainReq := &GetFEKRequest{
-		Meta: Meta{
+	domainReq := &dto.GetFEKRequest{
+		Meta: dto.Meta{
 			ContainerPath: req.Meta.ContainerPath,
 			UserID:        req.Meta.UserId,
 			MAC:           req.Meta.Mac,
 		},
 	}
 
-	resp, err := gh.handler.GetFEK(ctx, domainReq)
+	resp, err := gh.service.GetFEK(ctx, domainReq)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +98,8 @@ func (gh *grpcServiceHandler) GetFEK(ctx context.Context, req *gen.GetFEKRequest
 }
 
 func (gh *grpcServiceHandler) RefreshSession(ctx context.Context, req *gen.RefreshSessionRequest) (*gen.RefreshSessionResponse, error) {
-	domainReq := &RefreshSessionRequest{
-		Meta: Meta{
+	domainReq := &dto.RefreshSessionRequest{
+		Meta: dto.Meta{
 			ContainerPath: req.Meta.ContainerPath,
 			UserID:        req.Meta.UserId,
 			MAC:           req.Meta.Mac,
@@ -118,7 +107,7 @@ func (gh *grpcServiceHandler) RefreshSession(ctx context.Context, req *gen.Refre
 		ExtendTTLSeconds: req.ExtendTtlSeconds,
 	}
 
-	resp, err := gh.handler.RefreshSession(ctx, domainReq)
+	resp, err := gh.service.RefreshSession(ctx, domainReq)
 	if err != nil {
 		return nil, err
 	}
@@ -135,15 +124,15 @@ func (gh *grpcServiceHandler) RefreshSession(ctx context.Context, req *gen.Refre
 }
 
 func (gh *grpcServiceHandler) CloseSession(ctx context.Context, req *gen.CloseSessionRequest) (*gen.CloseSessionResponse, error) {
-	domainReq := &CloseSessionRequest{
-		Meta: Meta{
+	domainReq := &dto.CloseSessionRequest{
+		Meta: dto.Meta{
 			ContainerPath: req.Meta.ContainerPath,
 			UserID:        req.Meta.UserId,
 			MAC:           req.Meta.Mac,
 		},
 	}
 
-	resp, err := gh.handler.CloseSession(ctx, domainReq)
+	resp, err := gh.service.CloseSession(ctx, domainReq)
 	if err != nil {
 		return nil, err
 	}
@@ -159,27 +148,27 @@ func (gh *grpcServiceHandler) CloseSession(ctx context.Context, req *gen.CloseSe
 }
 
 func (gh *grpcServiceHandler) ListSessions(ctx context.Context, req *gen.ListSessionsRequest) (*gen.ListSessionsResponse, error) {
-	domainReq := &ListSessionsRequest{
-		Meta: Meta{
+	domainReq := &dto.ListSessionsRequest{
+		Meta: dto.Meta{
 			ContainerPath: req.Meta.ContainerPath,
 			UserID:        req.Meta.UserId,
 			MAC:           req.Meta.Mac,
 		},
 	}
 
-	resp, err := gh.handler.ListSessions(ctx, domainReq)
+	resp, err := gh.service.ListSessions(ctx, domainReq)
 	if err != nil {
 		return nil, err
 	}
 
 	grpcResp := &gen.ListSessionsResponse{}
-	
+
 	for _, session := range resp.Sessions {
 		grpcResp.Sessions = append(grpcResp.Sessions, &gen.SessionInfo{
-			ContainerPath:  session.ContainerPath,
-			CreatedAt:      session.CreatedAt.Unix(),
-			ExpiresAt:      session.ExpiresAt.Unix(),
-			LastAccessAt:   session.LastAccessAt.Unix(),
+			ContainerPath: session.ContainerPath,
+			CreatedAt:     session.CreatedAt.Unix(),
+			ExpiresAt:     session.ExpiresAt.Unix(),
+			LastAccessAt:  session.LastAccessAt.Unix(),
 		})
 	}
 

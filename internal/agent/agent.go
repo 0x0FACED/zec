@@ -1,38 +1,28 @@
 package agent
 
 import (
-	"sync"
-	"time"
+	"context"
 
+	"github.com/0x0FACED/zec/internal/agent/handler"
 	"github.com/0x0FACED/zlog"
-	"github.com/awnumar/memguard"
 )
 
-type ProtectedSession struct {
-	fek           *memguard.LockedBuffer
-	masterKey     *memguard.LockedBuffer
-	containerPath string
-	userID        int
-	createdAt     time.Time
-	expiresAt     time.Time
-	lastAccess    time.Time
-}
-
 type Agent struct {
-	sessions map[string]*ProtectedSession
-	log      *zlog.ZerologLogger
-	mu       sync.RWMutex
+	server handler.Transport
+	log    *zlog.ZerologLogger
 }
 
-func New(logger *zlog.ZerologLogger) *Agent {
+func New(server handler.Transport, logger *zlog.ZerologLogger) *Agent {
 	return &Agent{
-		sessions: make(map[string]*ProtectedSession),
-		log:      logger,
+		server: server,
+		log:    logger,
 	}
 }
 
-// Agent больше не управляет транспортами
-// Это делает внешний код (main или coordinator)
+func (a *Agent) Start(ctx context.Context) error {
+	a.log.Info().Msg("Agent started")
+	return a.server.Start(ctx)
+}
 
 // not implemented yet
 func (a *Agent) Status() error {

@@ -87,6 +87,8 @@ func (cm *ContainerManager) CreateNew(path, password string) (*Container, error)
 
 // OpenExisting открывает существующий контейнер
 func (cm *ContainerManager) OpenExisting(path, password string) (*Container, error) {
+	// далее здесь будем делать запрос к агенту для открытия сессии
+	// передавать будем путь до контейнера и пароль
 	storage, err := OpenFileStorage(path)
 	if err != nil {
 		return nil, err

@@ -24,6 +24,7 @@ type Session struct {
 }
 
 // NewSession создает новую сессию из существующего контейнера (расшифровывает FEK)
+// TODO: это все будет делать агент
 func NewSession(containerID string, password []byte, header Header) (*Session, error) {
 	masterKey := DeriveKey(password, header.ArgonSalt, header.ArgonMemoryLog2,
 		header.ArgonIterations, header.ArgonParallelism)
@@ -65,6 +66,7 @@ func NewSessionForNewContainer(containerID string, password []byte, header Heade
 	// в создании сессии бл. Ну ужас канеш, я это точно перепишу,
 	// для удобства пока что так.
 	header.EncryptedFEK = encryptedFEK
+	header.VerificationTag = CalculateHMAC(masterKey, header.AuthenticatedBytes())
 
 	now := time.Now()
 	session := &Session{

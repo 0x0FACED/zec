@@ -36,8 +36,17 @@ message GetFEKRequest {
 message GetFEKResponse {
     bool success = 1;
     bytes fek = 2;  // 32 bytes
-    bool found = 3;
-    AgentError error = 4;
+    AgentError error = 3;
+}
+
+message GetMasterKeyRequest {
+    Meta meta = 1;
+}
+
+message GetMasterKeyResponse {
+    bool success = 1;
+    bytes master_key = 2;  // 32 bytes
+    AgentError error = 3;
 }
 
 message RefreshSessionRequest {

@@ -431,6 +431,7 @@ func (fs *FileStorage) readIndex() error {
 		return err
 	}
 
+	// read all encrypted index data
 	encryptedData, err := io.ReadAll(fs.file)
 	if err != nil {
 		return err

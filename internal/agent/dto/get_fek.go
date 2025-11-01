@@ -1,7 +1,8 @@
 package dto
 
 type GetFEKRequest struct {
-	Meta Meta
+	Meta       Meta
+	SessionKey string
 }
 
 type GetFEKResponse struct {

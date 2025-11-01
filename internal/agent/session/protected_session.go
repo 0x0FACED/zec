@@ -4,23 +4,23 @@ import (
 	"os"
 	"time"
 
+	"github.com/0x0FACED/zec/internal/agent/dto"
 	"github.com/0x0FACED/zec/pkg/zec"
 	"github.com/awnumar/memguard"
 )
 
 type ProtectedSession struct {
-	fek           *memguard.Enclave
-	masterKey     *memguard.Enclave
-	f             *os.File
-	header        *zec.Header
-	containerPath string
-	userID        string
-	createdAt     time.Time
-	expiresAt     time.Time
-	lastAccess    time.Time
+	fek        *memguard.Enclave
+	masterKey  *memguard.Enclave
+	f          *os.File
+	header     *zec.Header
+	meta       dto.Meta
+	createdAt  time.Time
+	expiresAt  time.Time
+	lastAccess time.Time
 }
 
-func NewProtectedSession(pass []byte, path string, f *os.File, header *zec.Header, userID string) (*ProtectedSession, error) {
+func NewProtectedSession(pass []byte, f *os.File, header *zec.Header, meta dto.Meta) (*ProtectedSession, error) {
 	masterKey := zec.DeriveKey(pass, header.ArgonSalt, header.ArgonMemoryLog2,
 		header.ArgonIterations, header.ArgonParallelism)
 
@@ -31,15 +31,14 @@ func NewProtectedSession(pass []byte, path string, f *os.File, header *zec.Heade
 	}
 
 	return &ProtectedSession{
-		fek:           memguard.NewEnclave(fek[:]),
-		masterKey:     memguard.NewEnclave(masterKey[:]),
-		f:             f,
-		header:        header,
-		containerPath: path,
-		userID:        userID,
-		createdAt:     time.Now(),
-		expiresAt:     time.Now().Add(15 * time.Minute), // временно, должны передавать из вне
-		lastAccess:    time.Now(),
+		fek:        memguard.NewEnclave(fek[:]),
+		masterKey:  memguard.NewEnclave(masterKey[:]),
+		f:          f,
+		header:     header,
+		meta:       meta,
+		createdAt:  time.Now(),
+		expiresAt:  time.Now().Add(15 * time.Minute), // временно, должны передавать из вне
+		lastAccess: time.Now(),
 	}, nil
 }
 
@@ -67,6 +66,19 @@ func (ps *ProtectedSession) MasterKey() ([]byte, error) {
 	copy(data, buf.Bytes())
 
 	return data, nil
+}
+
+func (ps *ProtectedSession) ExpiresAt() time.Time {
+	return ps.expiresAt
+}
+
+func (ps *ProtectedSession) Refresh() {
+	ps.lastAccess = time.Now()
+	ps.expiresAt = time.Now().Add(15 * time.Minute)
+}
+
+func (ps *ProtectedSession) TTL() time.Duration {
+	return time.Until(ps.expiresAt)
 }
 
 func (ps *ProtectedSession) Close() error {

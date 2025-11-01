@@ -88,7 +88,6 @@ func (gh *grpcServiceHandler) GetFEK(ctx context.Context, req *gen.GetFEKRequest
 	grpcResp := &gen.GetFEKResponse{
 		Success: resp.Success,
 		Fek:     resp.FEK,
-		Found:   resp.Found,
 	}
 	if resp.Error != nil {
 		grpcResp.Error = &gen.AgentError{Message: resp.Error.Message}

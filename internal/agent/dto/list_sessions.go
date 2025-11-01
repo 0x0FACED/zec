@@ -4,6 +4,7 @@ import "time"
 
 type ListSessionsRequest struct {
 	Meta Meta
+	SessionKey string
 }
 
 type ListSessionsResponse struct {

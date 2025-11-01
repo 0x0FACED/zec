@@ -26,11 +26,13 @@ message CreateSessionRequest {
 message CreateSessionResponse {
     bool success = 1;
     int64 expires_at = 2;
-    AgentError error = 3;
+    string session_key = 3;
+    AgentError error = 4;
 }
 
 message GetFEKRequest {
     Meta meta = 1;
+    string session_key = 2;
 }
 
 message GetFEKResponse {
@@ -41,6 +43,7 @@ message GetFEKResponse {
 
 message GetMasterKeyRequest {
     Meta meta = 1;
+    string session_key = 2;
 }
 
 message GetMasterKeyResponse {
@@ -51,7 +54,8 @@ message GetMasterKeyResponse {
 
 message RefreshSessionRequest {
     Meta meta = 1;
-    int32 extend_ttl_seconds = 2;
+    string session_key = 2;
+    int32 extend_ttl_seconds = 3;
 }
 
 message RefreshSessionResponse {
@@ -62,6 +66,7 @@ message RefreshSessionResponse {
 
 message CloseSessionRequest {
     Meta meta = 1;
+    string session_key = 2;
 }
 
 message CloseSessionResponse {
@@ -71,6 +76,7 @@ message CloseSessionResponse {
 
 message ListSessionsRequest {
     Meta meta = 1;
+    string session_key = 2;
 }
 
 message ListSessionsResponse {

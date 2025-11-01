@@ -1,7 +1,8 @@
 package dto
 
 type CloseSessionRequest struct {
-	Meta Meta
+	Meta       Meta
+	SessionKey string
 }
 
 type CloseSessionResponse struct {

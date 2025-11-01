@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -64,7 +67,7 @@ func (s *AgentService) CreateSession(ctx context.Context, req *dto.CreateSession
 		}, nil
 	}
 
-	sess, err := session.NewProtectedSession(req.Password, path, file, &header, meta.UserID)
+	sess, err := session.NewProtectedSession(req.Password, file, &header, meta)
 	if err != nil {
 		return &dto.CreateSessionResponse{
 			Success: false,
@@ -74,16 +77,70 @@ func (s *AgentService) CreateSession(ctx context.Context, req *dto.CreateSession
 		}, nil
 	}
 
-	// ну и далее чет делаем, потом допишу
-	sessionKey := session.GenerateSessionKey(meta)
+	// TODO: возможно вообще привязать сертификат mTLS к сессии
+	// есть ли смысл делать это методом сервиса?
+	sessionKey := s.generateSessionKey(meta, sess)
 	s.mu.Lock()
 	s.sessions[sessionKey] = sess
 	s.mu.Unlock()
 
+	return &dto.CreateSessionResponse{
+		Success:   true,
+		ExpiresAt: sess.ExpiresAt().Unix(),
+	}, nil
+}
+
+func (s *AgentService) generateSessionKey(meta dto.Meta, sess *session.ProtectedSession) string {
+	// TOOD: убрать этот МК и генерирорвать при запуске агента свой МК, который храниться будет в temp файле с правами 600.
+	masterKey, err := sess.MasterKey()
+	if err != nil {
+		return ""
+	}
+
+	data := []byte(meta.ContainerPath + meta.UserID + meta.MAC)
+	hmac := sessionHmac(masterKey, data)
+
+	return fmt.Sprintf("%x", hmac)
+}
+
+// ну как костыль пока что
+func sessionHmac(key []byte, data []byte) []byte {
+	h := hmac.New(sha256.New, key)
+
+	h.Write([]byte("zec-agent-session"))
+	h.Write(data)
+
+	return h.Sum(nil)
 }
 
 func (s *AgentService) GetFEK(ctx context.Context, req *dto.GetFEKRequest) (*dto.GetFEKResponse, error) {
+	// раз уж у меня передается Meta, то можно проверить что сессия принадлежит этой мете
+	s.mu.RLock()
+	sess, exists := s.sessions[req.SessionKey]
+	s.mu.RUnlock()
+	if !exists {
+		return &dto.GetFEKResponse{
+			Success: false,
+			Error: &dto.AgentError{
+				Message: "Session not found",
+			},
+		}, nil
+	}
 
+	fek, err := sess.FEK()
+	if err != nil {
+		return &dto.GetFEKResponse{
+			Success: false,
+			Error: &dto.AgentError{
+				Message: "Failed to retrieve FEK: " + err.Error(),
+			},
+		}, nil
+	}
+
+	return &dto.GetFEKResponse{
+		Success: true,
+		FEK:     fek,
+	}, nil
 }
 
 func (s *AgentService) RefreshSession(ctx context.Context, req *dto.RefreshSessionRequest) (*dto.RefreshSessionResponse, error) {

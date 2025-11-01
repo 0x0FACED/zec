@@ -2,6 +2,7 @@ package dto
 
 type RefreshSessionRequest struct {
 	Meta             Meta
+	SessionKey       string
 	ExtendTTLSeconds int32
 }
 
